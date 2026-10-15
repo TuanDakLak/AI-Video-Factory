@@ -1,0 +1,45 @@
+# dependencies
+/node_modules
+/.pnp
+.pnp.js
+
+# testing
+/coverage
+
+# next.js
+/.next/
+/out/
+
+# production
+/build
+
+# misc
+.DS_Store
+*.pem
+
+# debug
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# local env files
+.env*.local
+.env
+
+# vercel
+.vercel
+
+# typescript
+*.tsbuildinfo
+next-env.d.ts
+
+# Phase 3 Security: Never commit browser profiles or temp generation files!
+data/browser-profiles/
+data/
+tmp/
+storage/projects/
+
+# local debug artifacts (Flow screenshots can show the signed-in Google account)
+/debug-*.png
+/_q.js
+*.log
