@@ -1,6 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/db";
 import { updateSceneSchema } from "@/lib/validations";
+import { requireApiUser } from "@/lib/auth/session";
+import { ownsGoogleAccount, ownsSequence } from "@/lib/auth/ownership";
 
 export const dynamic = "force-dynamic";
 
@@ -9,7 +11,10 @@ const LOCKED = ["QUEUED", "STARTING_BROWSER", "CHECKING_ACCOUNT", "OPENING_FLOW"
 /** Edit the prompt of one scene (only while it is not being rendered). A completed scene is reset so it can be re-rendered. */
 export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id: string; sceneId: string }> }) {
   try {
+    const user = await requireApiUser();
+    if (user instanceof NextResponse) return user;
     const { id, sceneId } = await params;
+    if (!(await ownsSequence(user.id, id))) return NextResponse.json({ error: "Không tìm thấy video nhiều cảnh." }, { status: 404 });
     const parsed = updateSceneSchema.safeParse(await req.json());
     if (!parsed.success) {
       return NextResponse.json({ error: parsed.error.errors[0]?.message || "Dữ liệu không hợp lệ" }, { status: 400 });

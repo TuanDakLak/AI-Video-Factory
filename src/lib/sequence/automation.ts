@@ -11,15 +11,15 @@ export type { AutomationRequest };
 
 const AUTO_PROJECT_NAME = "Tự động (Automation)";
 
-async function ensureProject(projectId?: string): Promise<string> {
+async function ensureProject(ownerId: string, projectId?: string): Promise<string> {
   if (projectId) {
-    const p = await prisma.project.findUnique({ where: { id: projectId }, select: { id: true } });
+    const p = await prisma.project.findFirst({ where: { id: projectId, ownerId }, select: { id: true } });
     if (!p) throw new Error("Không tìm thấy dự án.");
     return p.id;
   }
-  const existing = await prisma.project.findFirst({ where: { name: AUTO_PROJECT_NAME }, select: { id: true } });
+  const existing = await prisma.project.findFirst({ where: { name: AUTO_PROJECT_NAME, ownerId }, select: { id: true } });
   if (existing) return existing.id;
-  const created = await prisma.project.create({ data: { name: AUTO_PROJECT_NAME, description: "Video tạo tự động từ danh sách chủ đề.", topic: "Automation" } });
+  const created = await prisma.project.create({ data: { ownerId, name: AUTO_PROJECT_NAME, description: "Video tạo tự động từ danh sách chủ đề.", topic: "Automation" } });
   return created.id;
 }
 
@@ -30,11 +30,12 @@ export interface AutomationResult {
   message: string;
 }
 
-export async function runAutomation(req: AutomationRequest): Promise<AutomationResult[]> {
+/** ownerId: every project, preset and Google account used belongs to this user. */
+export async function runAutomation(req: AutomationRequest, ownerId: string): Promise<AutomationResult[]> {
   const topics = [...(req.topics ?? []), ...(req.topic ? [req.topic] : [])];
-  const preset = req.presetId ? getPreset(req.presetId) : null;
+  const preset = req.presetId ? getPreset(req.presetId, ownerId) : null;
   if (req.presetId && !preset) throw new Error("Không tìm thấy preset kênh.");
-  const projectId = await ensureProject(req.projectId);
+  const projectId = await ensureProject(ownerId, req.projectId);
   const out: AutomationResult[] = [];
   for (const topic of topics) {
     try {
@@ -49,7 +50,7 @@ export async function runAutomation(req: AutomationRequest): Promise<AutomationR
         transition: preset?.transition ?? "CUT",
         continuity: preset?.continuity ?? "FLOW_AGENT",
         presetId: preset?.id,
-      });
+      }, ownerId);
       const id = created.sequence.id;
       if (req.dryRunOnly) {
         const r = await SequenceService.start(id, { mode: "DRYRUN" });

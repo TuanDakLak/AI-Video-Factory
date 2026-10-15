@@ -4,13 +4,17 @@ import { prisma } from "@/lib/db";
 import { LIBRARY_VIDEO_WHERE } from "@/lib/video-library";
 import { Plus, FolderKanban, Sparkles, Film, ArrowUpRight } from "lucide-react";
 import { ContentTypeBadge } from "@/components/ui/Badge";
+import { requirePageUser } from "@/lib/auth/session";
+import { projectsOf } from "@/lib/auth/ownership";
 
 export const dynamic = "force-dynamic";
 
 export default async function ProjectsPage() {
+  const user = await requirePageUser();
   let projects: any[] = [];
   try {
     projects = await prisma.project.findMany({
+      where: projectsOf(user.id),
       orderBy: { createdAt: "desc" },
       include: {
         _count: {

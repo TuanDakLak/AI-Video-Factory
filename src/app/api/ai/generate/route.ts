@@ -1,9 +1,16 @@
 import { NextRequest, NextResponse } from "next/server";
 import { aiProvider } from "@/lib/ai";
 import { aiGenerateContentInputSchema } from "@/lib/validations";
+import { requireApiUser } from "@/lib/auth/session";
+import { hit } from "@/lib/auth/rate-limit";
 
 export async function POST(req: NextRequest) {
   try {
+    const user = await requireApiUser();
+    if (user instanceof NextResponse) return user;
+    // every call is billed to the server's Gemini key
+    const rl = await hit(`ai:${user.id}`, 30, 3600);
+    if (!rl.allowed) return NextResponse.json({ error: "Đã vượt giới hạn 30 lần tạo/giờ." }, { status: 429, headers: { "Retry-After": String(rl.retryAfterSec) } });
     const body = await req.json();
     const validated = aiGenerateContentInputSchema.safeParse(body);
 

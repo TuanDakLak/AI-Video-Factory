@@ -2,10 +2,14 @@ import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/db";
 import { LIBRARY_VIDEO_WHERE } from "@/lib/video-library";
 import { createProjectSchema } from "@/lib/validations";
+import { requireApiUser } from "@/lib/auth/session";
 
 export async function GET() {
   try {
+    const user = await requireApiUser();
+    if (user instanceof NextResponse) return user;
     const projects = await prisma.project.findMany({
+      where: { ownerId: user.id },
       orderBy: { createdAt: "desc" },
       include: {
         _count: { select: { generations: true, videoAssets: { where: LIBRARY_VIDEO_WHERE } } },
@@ -19,6 +23,8 @@ export async function GET() {
 
 export async function POST(req: NextRequest) {
   try {
+    const user = await requireApiUser();
+    if (user instanceof NextResponse) return user;
     const body = await req.json();
     const validated = createProjectSchema.safeParse(body);
 
@@ -33,6 +39,7 @@ export async function POST(req: NextRequest) {
 
     const project = await prisma.project.create({
       data: {
+        ownerId: user.id,
         name,
         description: description || null,
         contentType: contentType as any,

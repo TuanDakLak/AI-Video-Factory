@@ -4,6 +4,8 @@ import { notFound } from "next/navigation";
 import { prisma } from "@/lib/db";
 import { ArrowLeft } from "lucide-react";
 import ContentEditor from "@/components/contents/ContentEditor";
+import { requirePageUser } from "@/lib/auth/session";
+import { contentsOf, projectsOf } from "@/lib/auth/ownership";
 
 export const dynamic = "force-dynamic";
 
@@ -12,16 +14,18 @@ export default async function EditContentPage({
 }: {
   params: Promise<{ id: string }>;
 }) {
+  const user = await requirePageUser();
   const { id } = await params;
 
   let content = null;
   let projects: any[] = [];
   try {
     const [c, p] = await Promise.all([
-      prisma.content.findUnique({
-        where: { id },
+      prisma.content.findFirst({
+        where: { id, ...contentsOf(user.id) },
       }),
       prisma.project.findMany({
+        where: projectsOf(user.id),
         select: { id: true, name: true, topic: true, contentType: true },
       }),
     ]);

@@ -3,7 +3,7 @@ import { prisma } from "@/lib/db";
 /**
  * Credit safety net for Google Flow (credits = real money).
  *  - FLOW_MAX_CREDITS_PER_VIDEO : hard cap for ONE render (all approvals of a run together). Default 300. 0 = no cap.
- *  - FLOW_DAILY_CREDIT_BUDGET   : hard cap for everything approved since local midnight. Default 0 = no cap.
+ *  - FLOW_DAILY_CREDIT_BUDGET   : hard cap per Google account for everything approved since local midnight. Default 0 = no cap.
  * Every approved spend is written to the generation's event log as type CREDITS_SPENT (message = the number), which is the ledger
  * the daily budget is computed from.
  */
@@ -27,9 +27,14 @@ export function startOfLocalDay(now = new Date()): Date {
   return new Date(now.getFullYear(), now.getMonth(), now.getDate());
 }
 
-export async function creditsSpentToday(): Promise<number> {
+/** Credits approved today; per Google account when given (each user's accounts have their own budget). */
+export async function creditsSpentToday(googleAccountId?: string | null): Promise<number> {
   const rows = await prisma.generationEvent.findMany({
-    where: { type: CREDITS_SPENT_EVENT, createdAt: { gte: startOfLocalDay() } },
+    where: {
+      type: CREDITS_SPENT_EVENT,
+      createdAt: { gte: startOfLocalDay() },
+      ...(googleAccountId ? { generation: { googleAccountId } } : {}),
+    },
     select: { message: true },
   });
   return rows.reduce((sum, r) => sum + (parseFloat(r.message) || 0), 0);
@@ -56,7 +61,7 @@ export async function assertCanSpend(
     );
   }
   if (dailyBudget > 0) {
-    const spent = await creditsSpentToday();
+    const spent = await creditsSpentToday(opts.googleAccountId);
     if (spent + estimate > dailyBudget) {
       throw new Error(
         `Vượt ngân sách credit trong ngày: đã dùng ${spent}, cần thêm ${estimate}, trần ${dailyBudget} (FLOW_DAILY_CREDIT_BUDGET).`

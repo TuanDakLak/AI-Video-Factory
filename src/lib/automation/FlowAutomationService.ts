@@ -56,6 +56,8 @@ export class FlowAutomationService {
   }
 
   public static getProfilePath(profileDir: string): string {
+    // one folder name, never a path: a profile dir holds a signed-in Google session
+    if (!/^[A-Za-z0-9_-]{1,80}$/.test(profileDir)) throw new Error(`Invalid browser profile dir: ${profileDir}`);
     const rootProfileDir =
       process.env.BROWSER_PROFILE_PATH || "./data/browser-profiles";
     const resolvedPath = path.resolve(process.cwd(), rootProfileDir, profileDir);
@@ -409,10 +411,12 @@ export class FlowAutomationService {
    * Daily self-check of the Flow UI (spends NO credits): login, credit balance, project page, prompt composer, "+" asset button,
    * Agent settings and "new session" controls. When Flow changes its UI the failing item tells which control moved.
    */
-  public static async healthCheck(googleAccountId?: string): Promise<HealthReport> {
+  /** ownerId: restrict to that user's accounts (API callers); omitted only by trusted local callers (CLI, worker). */
+  public static async healthCheck(googleAccountId?: string, ownerId?: string): Promise<HealthReport> {
+    const owner = ownerId ? { ownerId } : {};
     const account = googleAccountId
-      ? await prisma.googleAccount.findUnique({ where: { id: googleAccountId } })
-      : await prisma.googleAccount.findFirst({ where: { status: "CONNECTED" }, orderBy: { updatedAt: "desc" } });
+      ? await prisma.googleAccount.findFirst({ where: { id: googleAccountId, ...owner } })
+      : await prisma.googleAccount.findFirst({ where: { status: "CONNECTED", ...owner }, orderBy: { updatedAt: "desc" } });
     if (!account) throw new Error("Chưa có tài khoản Google nào để kiểm tra.");
     const items: HealthCheckItem[] = [];
     const report: HealthReport = { at: new Date().toISOString(), accountId: account.id, accountName: account.name, ok: false, credits: null, items };
@@ -629,6 +633,8 @@ export class FlowAutomationService {
     if (!lead || !lead.sequenceId) throw new Error("Không tìm thấy cảnh của video nhiều cảnh để khôi phục.");
     if (!lead.googleAccount) throw new Error("Chưa gán tài khoản Google cho tác vụ khôi phục.");
     const account = lead.googleAccount;
+    const leadProject = await prisma.project.findUnique({ where: { id: lead.projectId }, select: { ownerId: true } });
+    if (!account.ownerId || account.ownerId !== leadProject?.ownerId) throw new Error("Tài khoản Google không thuộc chủ sở hữu của dự án này.");
     if (account.lockStatus === "IN_USE") throw new Error(`Tài khoản ${account.name} đang bận xử lý job khác.`);
 
     const scenes = await prisma.generation.findMany({
@@ -774,6 +780,10 @@ export class FlowAutomationService {
     }
 
     const account = generation.googleAccount;
+    // tenant isolation, last line of defence: never run one user's job with another user's Google session / credits
+    if (!account.ownerId || account.ownerId !== generation.project.ownerId) {
+      throw new Error("Tài khoản Google không thuộc chủ sở hữu của dự án này.");
+    }
 
     // Concurrency / Account Lock check
     if (account.lockStatus === "IN_USE") {
@@ -1064,7 +1074,7 @@ export class FlowAutomationService {
             let limitMsg = "";
             if (okPlan) {
               try {
-                await assertCanSpend(req.credits as number, { alreadySpentInRun: spentInRun, balance: visibleCredits });
+                await assertCanSpend(req.credits as number, { googleAccountId: account.id, alreadySpentInRun: spentInRun, balance: visibleCredits });
               } catch (e: any) {
                 okPlan = false;
                 limitMsg = ` ${e.message}`;

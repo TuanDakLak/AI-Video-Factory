@@ -5,6 +5,8 @@ import { prisma } from "@/lib/db";
 import { LIBRARY_VIDEO_WHERE } from "@/lib/video-library";
 import { ArrowLeft } from "lucide-react";
 import ProjectDetailClient from "@/components/projects/ProjectDetailClient";
+import { requirePageUser } from "@/lib/auth/session";
+import { projectsOf } from "@/lib/auth/ownership";
 
 export const dynamic = "force-dynamic";
 
@@ -13,12 +15,13 @@ export default async function ProjectDetailPage({
 }: {
   params: Promise<{ id: string }>;
 }) {
+  const user = await requirePageUser();
   const { id } = await params;
 
   let project = null;
   try {
-    project = await prisma.project.findUnique({
-      where: { id },
+    project = await prisma.project.findFirst({
+      where: { id, ...projectsOf(user.id) },
       include: {
         contents: {
           orderBy: { createdAt: "desc" },

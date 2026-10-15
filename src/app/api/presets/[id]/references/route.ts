@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getPreset, PRESET_REF_FOLDER, PRESET_STORAGE_PROJECT, updatePreset } from "@/lib/presets";
 import { storage } from "@/lib/storage";
+import { requireApiUser } from "@/lib/auth/session";
 
 export const dynamic = "force-dynamic";
 
@@ -10,8 +11,10 @@ const ALLOWED = ["image/png", "image/jpeg", "image/webp"];
 
 /** Upload reference images (max 3) of the channel's character / product. */
 export async function POST(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
+  const user = await requireApiUser();
+  if (user instanceof NextResponse) return user;
   const { id } = await params;
-  const preset = getPreset(id);
+  const preset = getPreset(id, user.id);
   if (!preset) return NextResponse.json({ error: "Không tìm thấy preset." }, { status: 404 });
   const form = await req.formData();
   const files = form.getAll("files").filter((f): f is File => typeof f !== "string");
@@ -26,20 +29,22 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
     const saved = await storage.saveFile(PRESET_STORAGE_PROJECT, f.name || "reference.png", Buffer.from(await f.arrayBuffer()), PRESET_REF_FOLDER);
     keys.push(saved.storageKey);
   }
-  updatePreset(id, { referenceImageKeys: keys });
+  updatePreset(id, user.id, { referenceImageKeys: keys });
   return NextResponse.json({ success: true, count: keys.length });
 }
 
 /** DELETE ?index=N removes one reference image. */
 export async function DELETE(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
+  const user = await requireApiUser();
+  if (user instanceof NextResponse) return user;
   const { id } = await params;
-  const preset = getPreset(id);
+  const preset = getPreset(id, user.id);
   if (!preset) return NextResponse.json({ error: "Không tìm thấy preset." }, { status: 404 });
   const index = parseInt(req.nextUrl.searchParams.get("index") || "", 10);
   if (!Number.isInteger(index) || index < 0 || index >= preset.referenceImageKeys.length) return NextResponse.json({ error: "Chỉ số ảnh không hợp lệ." }, { status: 400 });
   const keys = [...preset.referenceImageKeys];
   const [removed] = keys.splice(index, 1);
   await storage.deleteFile(removed);
-  updatePreset(id, { referenceImageKeys: keys });
+  updatePreset(id, user.id, { referenceImageKeys: keys });
   return NextResponse.json({ success: true, count: keys.length });
 }

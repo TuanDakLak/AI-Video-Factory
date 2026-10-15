@@ -1,10 +1,15 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/db";
 import { createGoogleAccountSchema } from "@/lib/validations";
+import { requireApiUser } from "@/lib/auth/session";
+import { randomBytes } from "crypto";
 
 export async function GET() {
   try {
+    const user = await requireApiUser();
+    if (user instanceof NextResponse) return user;
     const accounts = await prisma.googleAccount.findMany({
+      where: { ownerId: user.id },
       orderBy: { createdAt: "asc" },
       include: {
         _count: { select: { generations: true } },
@@ -18,6 +23,8 @@ export async function GET() {
 
 export async function POST(req: NextRequest) {
   try {
+    const user = await requireApiUser();
+    if (user instanceof NextResponse) return user;
     const body = await req.json();
     const validated = createGoogleAccountSchema.safeParse(body);
 
@@ -30,9 +37,12 @@ export async function POST(req: NextRequest) {
 
     const account = await prisma.googleAccount.create({
       data: {
+        ownerId: user.id,
+        // each account gets its own browser profile (= its own Google session); the name is never user-controlled
+        profileDir: `u-${user.id.slice(-8)}-${randomBytes(6).toString("hex")}`,
         name: validated.data.name,
         label: validated.data.label,
-        status: validated.data.status,
+        status: "NOT_CONNECTED",
         notes: validated.data.notes || null,
       },
     });

@@ -6,10 +6,13 @@ import { FolderKanban, FileText, Layers, Film, Plus, ArrowRight } from "lucide-r
 import { StatusBadge } from "@/components/ui/Badge";
 import { VideoItem } from "@/components/videos/VideoCard";
 import DashboardVideoList from "@/components/dashboard/DashboardVideoList";
+import { requirePageUser } from "@/lib/auth/session";
+import { contentsOf, projectsOf, sequencesOf, videoAssetsOf } from "@/lib/auth/ownership";
 
 export const dynamic = "force-dynamic";
 
 export default async function DashboardPage() {
+  const user = await requirePageUser();
   let projectCount = 0;
   let contentCount = 0;
   let sequenceCount = 0;
@@ -19,11 +22,12 @@ export default async function DashboardPage() {
 
   try {
     const [pCount, cCount, sCount, vCount, sRecent, vRecent] = await Promise.all([
-      prisma.project.count(),
-      prisma.content.count(),
-      prisma.sequence.count(),
-      prisma.videoAsset.count({ where: LIBRARY_VIDEO_WHERE }),
+      prisma.project.count({ where: projectsOf(user.id) }),
+      prisma.content.count({ where: contentsOf(user.id) }),
+      prisma.sequence.count({ where: sequencesOf(user.id) }),
+      prisma.videoAsset.count({ where: { AND: [LIBRARY_VIDEO_WHERE, videoAssetsOf(user.id)] } }),
       prisma.sequence.findMany({
+        where: sequencesOf(user.id),
         take: 4,
         orderBy: { createdAt: "desc" },
         select: {
@@ -37,7 +41,7 @@ export default async function DashboardPage() {
         },
       }),
       prisma.videoAsset.findMany({
-        where: LIBRARY_VIDEO_WHERE,
+        where: { AND: [LIBRARY_VIDEO_WHERE, videoAssetsOf(user.id)] },
         take: 4,
         orderBy: { createdAt: "desc" },
         include: {

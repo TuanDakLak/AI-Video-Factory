@@ -1,15 +1,18 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/db";
 import { storage } from "@/lib/storage";
+import { requireApiUser } from "@/lib/auth/session";
 
 export async function GET(
   req: NextRequest,
   { params }: { params: Promise<{ id: string }> }
 ) {
   try {
+    const user = await requireApiUser();
+    if (user instanceof NextResponse) return user;
     const { id } = await params;
-    const video = await prisma.videoAsset.findUnique({
-      where: { id },
+    const video = await prisma.videoAsset.findFirst({
+      where: { id, project: { ownerId: user.id } },
       include: {
         project: true,
         generation: true,
@@ -31,10 +34,12 @@ export async function DELETE(
   { params }: { params: Promise<{ id: string }> }
 ) {
   try {
+    const user = await requireApiUser();
+    if (user instanceof NextResponse) return user;
     const { id } = await params;
 
-    const video = await prisma.videoAsset.findUnique({
-      where: { id },
+    const video = await prisma.videoAsset.findFirst({
+      where: { id, project: { ownerId: user.id } },
     });
 
     if (!video) {

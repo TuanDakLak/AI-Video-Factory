@@ -3,13 +3,17 @@ import Link from "next/link";
 import { prisma } from "@/lib/db";
 import { FileText, Plus, ArrowRight, Sparkles, Film, Copy } from "lucide-react";
 import { CopyPromptButton } from "@/components/generations/CopyPromptButton";
+import { requirePageUser } from "@/lib/auth/session";
+import { contentsOf } from "@/lib/auth/ownership";
 
 export const dynamic = "force-dynamic";
 
 export default async function ContentsPage() {
+  const user = await requirePageUser();
   let contents: any[] = [];
   try {
     contents = await prisma.content.findMany({
+      where: contentsOf(user.id),
       orderBy: { createdAt: "desc" },
       include: {
         project: true,

@@ -25,6 +25,8 @@ export type PresetInput = z.infer<typeof presetInputSchema>;
 
 export interface ChannelPreset extends PresetInput {
   id: string;
+  /** user id; missing only on presets created before auth existed (claimed by the first admin) */
+  ownerId?: string;
   referenceImageKeys: string[];
   createdAt: string;
   updatedAt: string;
@@ -48,33 +50,43 @@ function writeAll(list: ChannelPreset[]): void {
   fs.renameSync(tmp, FILE());
 }
 
-export function listPresets(): ChannelPreset[] {
-  return readAll();
+/** Every accessor is scoped to an owner: a preset of another user behaves exactly like a missing one. */
+export function listPresets(ownerId: string): ChannelPreset[] {
+  return readAll().filter((p) => p.ownerId === ownerId);
 }
 
-export function getPreset(id: string): ChannelPreset | null {
-  return readAll().find((p) => p.id === id) ?? null;
+export function getPreset(id: string, ownerId: string): ChannelPreset | null {
+  return readAll().find((p) => p.id === id && p.ownerId === ownerId) ?? null;
 }
 
-export function createPreset(input: PresetInput): ChannelPreset {
+export function createPreset(input: PresetInput, ownerId: string): ChannelPreset {
   const now = new Date().toISOString();
-  const preset: ChannelPreset = { ...input, id: randomUUID(), referenceImageKeys: [], createdAt: now, updatedAt: now };
+  const preset: ChannelPreset = { ...input, id: randomUUID(), ownerId, referenceImageKeys: [], createdAt: now, updatedAt: now };
   writeAll([preset, ...readAll()]);
   return preset;
 }
 
-export function updatePreset(id: string, patch: Partial<PresetInput> & { referenceImageKeys?: string[] }): ChannelPreset | null {
+export function updatePreset(id: string, ownerId: string, patch: Partial<PresetInput> & { referenceImageKeys?: string[] }): ChannelPreset | null {
   const list = readAll();
-  const i = list.findIndex((p) => p.id === id);
+  const i = list.findIndex((p) => p.id === id && p.ownerId === ownerId);
   if (i < 0) return null;
-  list[i] = { ...list[i], ...patch, id, updatedAt: new Date().toISOString() };
+  list[i] = { ...list[i], ...patch, id, ownerId, updatedAt: new Date().toISOString() };
   writeAll(list);
   return list[i];
 }
 
-export function deletePreset(id: string): ChannelPreset | null {
+export function deletePreset(id: string, ownerId: string): ChannelPreset | null {
   const list = readAll();
-  const found = list.find((p) => p.id === id) ?? null;
-  if (found) writeAll(list.filter((p) => p.id !== id));
+  const found = list.find((p) => p.id === id && p.ownerId === ownerId) ?? null;
+  if (found) writeAll(list.filter((p) => p !== found));
   return found;
+}
+
+/** Bootstrap: presets created before auth existed become the first admin's. */
+export function claimUnownedPresets(ownerId: string): number {
+  const list = readAll();
+  let n = 0;
+  for (const p of list) if (!p.ownerId) { p.ownerId = ownerId; n++; }
+  if (n) writeAll(list);
+  return n;
 }

@@ -1,12 +1,15 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/db";
 import { createContentSchema } from "@/lib/validations";
+import { requireApiUser } from "@/lib/auth/session";
 
 export async function GET(req: NextRequest) {
   try {
+    const user = await requireApiUser();
+    if (user instanceof NextResponse) return user;
     const projectId = req.nextUrl.searchParams.get("projectId");
     const contents = await prisma.content.findMany({
-      where: projectId ? { projectId } : undefined,
+      where: { project: { ownerId: user.id }, ...(projectId ? { projectId } : {}) },
       orderBy: { createdAt: "desc" },
       include: {
         project: true,
@@ -23,6 +26,8 @@ export async function GET(req: NextRequest) {
 
 export async function POST(req: NextRequest) {
   try {
+    const user = await requireApiUser();
+    if (user instanceof NextResponse) return user;
     const body = await req.json();
     const validated = createContentSchema.safeParse(body);
 
@@ -48,8 +53,8 @@ export async function POST(req: NextRequest) {
     } = validated.data;
 
     // Verify project exists
-    const project = await prisma.project.findUnique({
-      where: { id: projectId },
+    const project = await prisma.project.findFirst({
+      where: { id: projectId, ownerId: user.id },
     });
     if (!project) {
       return NextResponse.json({ error: "Không tìm thấy dự án tương ứng." }, { status: 404 });

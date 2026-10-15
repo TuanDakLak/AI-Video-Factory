@@ -3,6 +3,8 @@ import Link from "next/link";
 import { prisma } from "@/lib/db";
 import { ArrowLeft } from "lucide-react";
 import ContentEditor from "@/components/contents/ContentEditor";
+import { requirePageUser } from "@/lib/auth/session";
+import { projectsOf } from "@/lib/auth/ownership";
 
 export const dynamic = "force-dynamic";
 
@@ -11,11 +13,13 @@ export default async function NewContentPage({
 }: {
   searchParams: Promise<{ projectId?: string }>;
 }) {
+  const user = await requirePageUser();
   const { projectId } = await searchParams;
 
   let projects: any[] = [];
   try {
     projects = await prisma.project.findMany({
+      where: projectsOf(user.id),
       orderBy: { createdAt: "desc" },
       select: { id: true, name: true, topic: true, contentType: true },
     });

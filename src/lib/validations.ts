@@ -74,7 +74,7 @@ export const updateContentSchema = createContentSchema.partial().omit({ projectI
 
 // 3. AI Generation Schemas
 export const aiGenerateContentInputSchema = z.object({
-  topic: z.string().min(3, "Chủ đề cần ít nhất 3 ký tự"),
+  topic: z.string().min(3, "Chủ đề cần ít nhất 3 ký tự").max(2000),
   contentType: ContentTypeEnum.default("SHORT_VIDEO"),
   language: z.string().default("vi"),
   style: z.string().default("Cinematic"),
@@ -148,7 +148,8 @@ export const startSequenceSchema = z.object({
    */
   mode: z.enum(["RUN", "DRYRUN", "RECOVER"]).default("RUN"),
   /** RECOVER only: Flow project URL to read the clips from (defaults to the one stored on the sequence). */
-  flowProjectUrl: z.string().url().regex(/\/project\/[^/?#]+/, "Không phải URL dự án Flow").optional(),
+  // opened in the user's signed-in Google browser profile: only Flow project pages are allowed
+  flowProjectUrl: z.string().url().regex(/^https:\/\/(flow\.google\.com|labs\.google)(\/[^\s?#]*)?\/project\/[^/?#]+/, "Không phải URL dự án Flow").optional(),
 });
 
 export const updateSceneSchema = z.object({
@@ -157,12 +158,11 @@ export const updateSceneSchema = z.object({
 
 // 5. Google Account Schemas
 export const createGoogleAccountSchema = z.object({
-  name: z.string().min(1, "Tên tài khoản không được để trống"),
-  label: z.string().min(1, "Nhãn tài khoản không được để trống"),
-  profileDir: z.string().default("account-a"),
-  status: GoogleAccountStatusEnum.default("NOT_CONNECTED"),
-  notes: z.string().optional(),
+  name: z.string().trim().min(1, "Tên tài khoản không được để trống").max(80),
+  label: z.string().trim().min(1, "Nhãn tài khoản không được để trống").max(120),
+  notes: z.string().max(500).optional(),
 });
+// profileDir (which browser profile = which Google session) and status are server-controlled, never client input
 
 export const updateGoogleAccountSchema = createGoogleAccountSchema.partial();
 

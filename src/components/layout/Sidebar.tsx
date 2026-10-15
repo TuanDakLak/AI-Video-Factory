@@ -1,6 +1,6 @@
 "use client";
 
-import React from "react";
+import React, { useState } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import {
@@ -12,10 +12,18 @@ import {
   Video,
   Settings,
   Layers,
+  LogOut,
 } from "lucide-react";
 
-export function Sidebar() {
+export function Sidebar({ user }: { user: { name: string; email: string; role: "USER" | "ADMIN" } }) {
   const pathname = usePathname();
+  const [leaving, setLeaving] = useState(false);
+
+  const logout = async () => {
+    setLeaving(true);
+    await fetch("/api/auth/logout", { method: "POST" }).catch(() => {});
+    window.location.href = "/login";
+  };
 
   const links = [
     {
@@ -108,6 +116,19 @@ export function Sidebar() {
         })}
       </nav>
 
+      <div className="p-4 border-t border-slate-100 flex items-center gap-3">
+        <div className="w-8 h-8 rounded-full bg-emerald-100 text-emerald-800 flex items-center justify-center text-xs font-bold shrink-0">
+          {(user.name || user.email).slice(0, 1).toUpperCase()}
+        </div>
+        <div className="min-w-0 flex-1">
+          <p className="text-xs font-semibold text-slate-800 truncate">{user.name}</p>
+          <p className="text-[11px] text-slate-400 truncate">{user.email}</p>
+        </div>
+        <button type="button" onClick={logout} disabled={leaving} title="Đăng xuất"
+          className="p-2 rounded-lg text-slate-400 hover:text-rose-600 hover:bg-rose-50 disabled:opacity-50">
+          <LogOut className="w-4 h-4" />
+        </button>
+      </div>
     </aside>
   );
 }

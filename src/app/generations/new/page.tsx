@@ -3,6 +3,8 @@ import { prisma } from "@/lib/db";
 import NewGenerationForm from "@/components/generations/NewGenerationForm";
 import Link from "next/link";
 import { ArrowLeft } from "lucide-react";
+import { requirePageUser } from "@/lib/auth/session";
+import { contentsOf, googleAccountsOf, projectsOf } from "@/lib/auth/ownership";
 
 export const dynamic = "force-dynamic";
 
@@ -16,6 +18,7 @@ export default async function NewGenerationPage({
     duration?: string;
   }>;
 }) {
+  const user = await requirePageUser();
   const { projectId, contentId, aspectRatio, duration } = await searchParams;
 
   let projects: Array<{ id: string; name: string }> = [];
@@ -25,10 +28,12 @@ export default async function NewGenerationPage({
   try {
     const [pList, cList, aList] = await Promise.all([
       prisma.project.findMany({
+        where: projectsOf(user.id),
         orderBy: { createdAt: "desc" },
         select: { id: true, name: true },
       }),
       prisma.content.findMany({
+        where: contentsOf(user.id),
         orderBy: { createdAt: "desc" },
         select: {
           id: true,
@@ -40,6 +45,7 @@ export default async function NewGenerationPage({
         },
       }),
       prisma.googleAccount.findMany({
+        where: googleAccountsOf(user.id),
         orderBy: { createdAt: "asc" },
         select: { id: true, name: true, label: true, status: true, lockStatus: true, lastKnownFlowCredits: true },
       }),

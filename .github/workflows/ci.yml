@@ -45,6 +45,8 @@ jobs:
       DATABASE_URL: postgresql://postgres:postgres@localhost:5432/aicontentfactory?schema=public
       REDIS_URL: redis://localhost:6379
       STORAGE_PATH: ./storage
+      # throwaway key for CI only (real deployments set their own secret)
+      AUTH_SECRET: ci-only-auth-secret-not-used-anywhere-else-0123456789
       # never talk to real services from CI
       GEMINI_API_KEY: ""
       VEO_API_KEY: ""

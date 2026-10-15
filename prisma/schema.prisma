@@ -53,53 +53,61 @@ enum AccountLockStatus {
 }
 
 model Project {
-  id          String        @id @default(cuid())
+  id          String       @id @default(cuid())
+  ownerId     String? // null only for data created before auth existed (claimed by the first admin)
+  owner       User?        @relation(fields: [ownerId], references: [id], onDelete: Cascade)
   name        String
   description String?
-  contentType ContentType   @default(SHORT_VIDEO)
+  contentType ContentType  @default(SHORT_VIDEO)
   topic       String
-  createdAt   DateTime      @default(now())
-  updatedAt   DateTime      @updatedAt
+  createdAt   DateTime     @default(now())
+  updatedAt   DateTime     @updatedAt
   contents    Content[]
   generations Generation[]
   videoAssets VideoAsset[]
   sequences   Sequence[]
+
+  @@index([ownerId])
 }
 
 model Content {
-  id          String        @id @default(cuid())
+  id          String       @id @default(cuid())
   projectId   String
-  project     Project       @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  project     Project      @relation(fields: [projectId], references: [id], onDelete: Cascade)
   title       String
-  concept     String        @db.Text
-  script      String        @db.Text
-  videoPrompt String        @db.Text
-  description String?       @db.Text
-  language    String        @default("vi")
-  style       String        @default("Cinematic")
-  duration    String        @default("8s")
-  aspectRatio String        @default("9:16")
-  tags        String        @default("[]") // JSON string of tags array
-  createdAt   DateTime      @default(now())
-  updatedAt   DateTime      @updatedAt
+  concept     String       @db.Text
+  script      String       @db.Text
+  videoPrompt String       @db.Text
+  description String?      @db.Text
+  language    String       @default("vi")
+  style       String       @default("Cinematic")
+  duration    String       @default("8s")
+  aspectRatio String       @default("9:16")
+  tags        String       @default("[]") // JSON string of tags array
+  createdAt   DateTime     @default(now())
+  updatedAt   DateTime     @updatedAt
   generations Generation[]
   sequences   Sequence[]
 }
 
 model GoogleAccount {
   id                   String              @id @default(cuid())
-  name                 String              // "Google Pro A", "Google Pro B"
-  label                String              // "Tài khoản 1 (Chính)"
-  profileDir           String              @default("account-a") // Relative folder in browser-profiles/ e.g. "account-a"
+  ownerId              String? // null only for data created before auth existed (claimed by the first admin)
+  owner                User?               @relation(fields: [ownerId], references: [id], onDelete: Cascade)
+  name                 String // "Google Pro A", "Google Pro B"
+  label                String // "Tài khoản 1 (Chính)"
+  profileDir           String              @unique // Relative folder in browser-profiles/ e.g. "account-a"
   status               GoogleAccountStatus @default(NOT_CONNECTED)
   lockStatus           AccountLockStatus   @default(AVAILABLE)
-  lastKnownFlowCredits Int?                // Last read visible Flow credits from UI
+  lastKnownFlowCredits Int? // Last read visible Flow credits from UI
   lastCreditCheckAt    DateTime?
   lastConnectedAt      DateTime?
   notes                String?
   createdAt            DateTime            @default(now())
   updatedAt            DateTime            @updatedAt
   generations          Generation[]
+
+  @@index([ownerId])
 }
 
 model Generation {
@@ -113,7 +121,7 @@ model Generation {
   prompt             String            @db.Text
   model              String            @default("Veo 3.1 Fast")
   aspectRatio        String            @default("9:16") // "16:9", "9:16", "1:1"
-  duration           String            @default("8s")   // "8s", "15s", "30s", "60s"
+  duration           String            @default("8s") // "8s", "15s", "30s", "60s"
   status             GenerationStatus  @default(DRAFT)
   generationMethod   String            @default("AUTO") // "AUTO" | "MANUAL"
   provider           String            @default("GOOGLE_FLOW")
@@ -123,7 +131,7 @@ model Generation {
   idempotencyKey     String?           @unique
   sequenceId         String?
   sequence           Sequence?         @relation(fields: [sequenceId], references: [id], onDelete: Cascade)
-  sceneIndex         Int?              // 0-based position inside the sequence
+  sceneIndex         Int? // 0-based position inside the sequence
   createdAt          DateTime          @default(now())
   updatedAt          DateTime          @updatedAt
   completedAt        DateTime?
@@ -135,7 +143,7 @@ model GenerationEvent {
   id           String     @id @default(cuid())
   generationId String
   generation   Generation @relation(fields: [generationId], references: [id], onDelete: Cascade)
-  type         String     // QUEUED, BROWSER_STARTED, ACCOUNT_CHECKED, FLOW_OPENED, SUBMITTED, GENERATING, DOWNLOAD_STARTED, DOWNLOAD_COMPLETED, PROCESSING, COMPLETED, FAILED
+  type         String // QUEUED, BROWSER_STARTED, ACCOUNT_CHECKED, FLOW_OPENED, SUBMITTED, GENERATING, DOWNLOAD_STARTED, DOWNLOAD_COMPLETED, PROCESSING, COMPLETED, FAILED
   message      String
   createdAt    DateTime   @default(now())
 }
@@ -147,13 +155,13 @@ model VideoAsset {
   generationId     String?          @unique
   generation       Generation?      @relation(fields: [generationId], references: [id], onDelete: SetNull)
   filename         String
-  storageKey       String           // Path relative to storage root
+  storageKey       String // Path relative to storage root
   mimeType         String           @default("video/mp4")
-  fileSize         Int              // Bytes
-  duration         Float?           // Seconds
-  width            Int?             // Resolution width
-  height           Int?             // Resolution height
-  thumbnailKey     String?          // Thumbnail path relative to storage root
+  fileSize         Int // Bytes
+  duration         Float? // Seconds
+  width            Int? // Resolution width
+  height           Int? // Resolution height
+  thumbnailKey     String? // Thumbnail path relative to storage root
   status           VideoAssetStatus @default(READY)
   source           String           @default("FLOW_AUTOMATION") // "FLOW_AUTOMATION" | "MANUAL"
   providerMetadata String?          @db.Text
@@ -172,28 +180,69 @@ enum SequenceStatus {
 
 // A long video made of several independent Flow clips stitched together with ffmpeg
 model Sequence {
-  id              String         @id @default(cuid())
-  projectId       String
-  project         Project        @relation(fields: [projectId], references: [id], onDelete: Cascade)
-  contentId       String?
-  content         Content?       @relation(fields: [contentId], references: [id], onDelete: SetNull)
-  googleAccountId String?
-  title           String
-  brief           String         @db.Text
-  styleBible      String         @db.Text // shared look/character description prepended to every scene prompt
-  model           String         @default("Veo 3.1 Fast")
-  aspectRatio     String         @default("9:16")
-  clipSeconds     Int            @default(8)
-  totalDuration   Int            @default(32) // target seconds
-  transition      String         @default("CUT") // "CUT" | "CROSSFADE"
-  continuity      String         @default("INDEPENDENT") // "INDEPENDENT" | "LAST_FRAME" (scene N starts from the last frame of scene N-1)
-  referenceImageKeys String     @default("[]") // JSON array (max 3) of storage keys: product/character photos attached to scenes as Flow "Ingredients"
-  caption         String?        @db.Text // social caption suggested for the final video (used by the publish step)
-  tags            String         @default("[]") // JSON array of hashtags/keywords
-  status          SequenceStatus @default(PLANNED)
-  errorMessage    String?        @db.Text
-  createdAt       DateTime       @default(now())
-  updatedAt       DateTime       @updatedAt
-  scenes          Generation[]
-  finalVideo      VideoAsset?    @relation("SequenceFinal")
+  id                 String         @id @default(cuid())
+  projectId          String
+  project            Project        @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  contentId          String?
+  content            Content?       @relation(fields: [contentId], references: [id], onDelete: SetNull)
+  googleAccountId    String?
+  title              String
+  brief              String         @db.Text
+  styleBible         String         @db.Text // shared look/character description prepended to every scene prompt
+  model              String         @default("Veo 3.1 Fast")
+  aspectRatio        String         @default("9:16")
+  clipSeconds        Int            @default(8)
+  totalDuration      Int            @default(32) // target seconds
+  transition         String         @default("CUT") // "CUT" | "CROSSFADE"
+  continuity         String         @default("INDEPENDENT") // "INDEPENDENT" | "LAST_FRAME" (scene N starts from the last frame of scene N-1)
+  referenceImageKeys String         @default("[]") // JSON array (max 3) of storage keys: product/character photos attached to scenes as Flow "Ingredients"
+  caption            String?        @db.Text // social caption suggested for the final video (used by the publish step)
+  tags               String         @default("[]") // JSON array of hashtags/keywords
+  status             SequenceStatus @default(PLANNED)
+  errorMessage       String?        @db.Text
+  createdAt          DateTime       @default(now())
+  updatedAt          DateTime       @updatedAt
+  scenes             Generation[]
+  finalVideo         VideoAsset?    @relation("SequenceFinal")
+}
+
+enum UserRole {
+  USER
+  ADMIN
+}
+
+model User {
+  id             String          @id @default(cuid())
+  email          String          @unique // stored lower-cased
+  name           String
+  passwordHash   String // argon2id (PHC string)
+  role           UserRole        @default(USER)
+  disabled       Boolean         @default(false)
+  createdAt      DateTime        @default(now())
+  updatedAt      DateTime        @updatedAt
+  lastLoginAt    DateTime?
+  projects       Project[]
+  googleAccounts GoogleAccount[]
+  refreshTokens  RefreshToken[]
+}
+
+// Opaque refresh tokens, rotated on every use. All tokens issued from one login share a familyId; presenting an already
+// rotated token (outside a short grace window) means it was stolen, so the whole family is revoked.
+model RefreshToken {
+  id              String    @id @default(cuid())
+  userId          String
+  user            User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  familyId        String
+  tokenHash       String    @unique // sha256(token); the raw token only ever lives in the user's cookie
+  createdAt       DateTime  @default(now())
+  expiresAt       DateTime // idle timeout: a token not rotated before this date is dead
+  familyExpiresAt DateTime // absolute session lifetime, copied from the first token of the family
+  rotatedAt       DateTime? // set when exchanged for a successor
+  revokedAt       DateTime?
+  revokeReason    String?
+  userAgent       String?
+  ip              String?
+
+  @@index([familyId])
+  @@index([userId])
 }

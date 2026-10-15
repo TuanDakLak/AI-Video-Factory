@@ -144,13 +144,15 @@ async function run() {
   const tmpWork = fs.mkdtempSync(path.join(os.tmpdir(), "preset-test-"));
   process.chdir(tmpWork);
   try {
-    assert(listPresets().length === 0, "no presets in a fresh data dir");
-    const pr = createPreset(presetInputSchema.parse({ name: "Kênh Amazon", styleBible: "cinematic jungle", hashtags: ["#amazon"] }));
+    assert(listPresets("user-a").length === 0, "no presets in a fresh data dir");
+    const pr = createPreset(presetInputSchema.parse({ name: "Kênh Amazon", styleBible: "cinematic jungle", hashtags: ["#amazon"] }), "user-a");
     assert(pr.clipSeconds === 10 && pr.continuity === "FLOW_AGENT" && pr.aspectRatio === "9:16", "preset defaults (10s clips, Flow Agent, 9:16)");
-    assert(getPreset(pr.id)?.name === "Kênh Amazon", "preset can be read back");
-    assert(updatePreset(pr.id, { clipSeconds: 8 })?.clipSeconds === 8, "preset can be updated");
+    assert(getPreset(pr.id, "user-a")?.name === "Kênh Amazon", "preset can be read back");
+    assert(getPreset(pr.id, "user-b") === null && listPresets("user-b").length === 0, "another user cannot see the preset");
+    assert(updatePreset(pr.id, "user-b", { clipSeconds: 8 }) === null && deletePreset(pr.id, "user-b") === null, "another user cannot update/delete it");
+    assert(updatePreset(pr.id, "user-a", { clipSeconds: 8 })?.clipSeconds === 8, "preset can be updated");
     assert(!presetInputSchema.safeParse({ name: "   " }).success, "empty preset name rejected");
-    assert(deletePreset(pr.id) !== null && listPresets().length === 0, "preset can be deleted");
+    assert(deletePreset(pr.id, "user-a") !== null && listPresets("user-a").length === 0, "preset can be deleted");
 
     saveHealthReport({ at: "t", accountId: "a", accountName: "n", ok: false, credits: 5, items: [{ name: "login", ok: false, detail: "x" }] });
     assert(readHealthHistory()[0]?.items[0].name === "login", "health report is persisted (newest first)");

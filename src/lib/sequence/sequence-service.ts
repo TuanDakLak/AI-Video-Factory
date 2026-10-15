@@ -29,10 +29,16 @@ function safeTags(json: string | null | undefined): string[] {
 }
 
 export class SequenceService {
-  /** Plan scenes with AI (or fallback) and create Sequence + one DRAFT Generation per scene. Does NOT start rendering. */
-  static async create(input: CreateSequenceInput) {
-    const project = await prisma.project.findUnique({ where: { id: input.projectId } });
+  /**
+   * Plan scenes with AI (or fallback) and create Sequence + one DRAFT Generation per scene. Does NOT start rendering.
+   * ownerId: the project, content, preset and Google account must all belong to this user.
+   */
+  static async create(input: CreateSequenceInput, ownerId: string) {
+    const project = await prisma.project.findFirst({ where: { id: input.projectId, ownerId } });
     if (!project) throw new Error("Không tìm thấy dự án tương ứng.");
+    if (input.googleAccountId && !(await prisma.googleAccount.findFirst({ where: { id: input.googleAccountId, ownerId }, select: { id: true } }))) {
+      throw new Error("Không tìm thấy tài khoản Google đã chọn.");
+    }
 
     const content = input.contentId
       ? await prisma.content.findUnique({ where: { id: input.contentId } })
@@ -41,7 +47,7 @@ export class SequenceService {
       throw new Error("Kịch bản đã chọn không thuộc dự án này.");
     }
 
-    const preset = input.presetId ? getPreset(input.presetId) : null;
+    const preset = input.presetId ? getPreset(input.presetId, ownerId) : null;
     if (input.presetId && !preset) throw new Error("Không tìm thấy preset kênh đã chọn.");
 
     const brief =
@@ -136,17 +142,28 @@ export class SequenceService {
   ) {
     const seq = await prisma.sequence.findUnique({
       where: { id: sequenceId },
-      include: { scenes: { orderBy: { sceneIndex: "asc" }, include: { videoAsset: true } }, finalVideo: { select: { id: true } } },
+      include: {
+        scenes: { orderBy: { sceneIndex: "asc" }, include: { videoAsset: true } },
+        finalVideo: { select: { id: true } },
+        project: { select: { ownerId: true } },
+      },
     });
     if (!seq) throw new Error("Không tìm thấy video nhiều cảnh này.");
+    // the Google account (= whose credits and whose Google session) always belongs to the owner of the video, whoever calls
+    const owner = seq.project.ownerId;
+    if (!owner) throw new Error("Video chưa có chủ sở hữu.");
     if (seq.status === "ASSEMBLING") throw new Error("Video đang được ghép, vui lòng chờ xong.");
     // clips are deleted once the long video exists: a COMPLETED scene of a finished video is done, never re-rendered implicitly
     const hasClip = (s: (typeof seq.scenes)[number]) => !!s.videoAsset || (!!seq.finalVideo && s.status === "COMPLETED");
 
     const apiOnly = seq.scenes.length > 0 && seq.scenes.every((s) => s.provider === VEO_API_PROVIDER);
     let accountId: string | null | undefined = opts.googleAccountId || seq.googleAccountId;
+    if (accountId && !(await prisma.googleAccount.findFirst({ where: { id: accountId, ownerId: owner }, select: { id: true } }))) {
+      if (opts.googleAccountId) throw new Error("Không tìm thấy tài khoản Google đã chọn.");
+      accountId = null; // stale/foreign account stored on the sequence: pick one of the owner's
+    }
     if (!accountId && !apiOnly) {
-      const acc = await prisma.googleAccount.findFirst({ where: { status: "CONNECTED", lockStatus: "AVAILABLE" } });
+      const acc = await prisma.googleAccount.findFirst({ where: { ownerId: owner, status: "CONNECTED", lockStatus: "AVAILABLE" } });
       if (!acc) throw new Error("Không có tài khoản Google nào đang CONNECTED. Vui lòng kết nối tại Cài Đặt.");
       accountId = acc.id;
     }

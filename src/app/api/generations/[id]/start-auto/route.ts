@@ -1,18 +1,21 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/db";
 import { enqueueGenerationJob } from "@/lib/queue/generation-queue";
+import { requireApiUser } from "@/lib/auth/session";
 
 export async function POST(
   req: NextRequest,
   { params }: { params: Promise<{ id: string }> }
 ) {
   try {
+    const user = await requireApiUser();
+    if (user instanceof NextResponse) return user;
     const { id } = await params;
     const body = await req.json().catch(() => ({}));
-    const selectedAccountId = body.googleAccountId;
+    const selectedAccountId = typeof body.googleAccountId === "string" ? body.googleAccountId : undefined;
 
-    const generation = await prisma.generation.findUnique({
-      where: { id },
+    const generation = await prisma.generation.findFirst({
+      where: { id, project: { ownerId: user.id } },
       include: { googleAccount: true },
     });
 
@@ -30,6 +33,7 @@ export async function POST(
       // Auto pick first available connected account
       const availableAccount = await prisma.googleAccount.findFirst({
         where: {
+          ownerId: user.id,
           status: "CONNECTED",
           lockStatus: "AVAILABLE",
         },
@@ -44,8 +48,8 @@ export async function POST(
       accountId = availableAccount.id;
     }
 
-    const account = await prisma.googleAccount.findUnique({
-      where: { id: accountId },
+    const account = await prisma.googleAccount.findFirst({
+      where: { id: accountId, ownerId: user.id },
     });
 
     if (!account) {

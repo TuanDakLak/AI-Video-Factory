@@ -4,16 +4,19 @@ import { prisma } from "@/lib/db";
 import { storage } from "@/lib/storage";
 import { videoProcessor } from "@/lib/video-processor";
 import path from "path";
+import { requireApiUser } from "@/lib/auth/session";
 
 export async function POST(
   req: NextRequest,
   { params }: { params: Promise<{ id: string }> }
 ) {
   try {
+    const user = await requireApiUser();
+    if (user instanceof NextResponse) return user;
     const { id: generationId } = await params;
 
-    const generation = await prisma.generation.findUnique({
-      where: { id: generationId },
+    const generation = await prisma.generation.findFirst({
+      where: { id: generationId, project: { ownerId: user.id } },
       include: { project: true },
     });
 
@@ -29,6 +32,12 @@ export async function POST(
 
     if (!file) {
       return NextResponse.json({ error: "Vui lòng đính kèm file video." }, { status: 400 });
+    }
+    if (!/^video\/(mp4|webm|quicktime)$/i.test(file.type || "")) {
+      return NextResponse.json({ error: "Chỉ nhận file video MP4, WEBM hoặc MOV." }, { status: 400 });
+    }
+    if (file.size > 500 * 1024 * 1024) {
+      return NextResponse.json({ error: "File video tối đa 500MB." }, { status: 400 });
     }
 
     const bytes = await file.arrayBuffer();

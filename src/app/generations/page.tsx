@@ -4,13 +4,17 @@ import { prisma } from "@/lib/db";
 import { Sparkles, Plus, ArrowRight, UserCheck } from "lucide-react";
 import { StatusBadge } from "@/components/ui/Badge";
 import { CopyPromptButton } from "@/components/generations/CopyPromptButton";
+import { requirePageUser } from "@/lib/auth/session";
+import { generationsOf } from "@/lib/auth/ownership";
 
 export const dynamic = "force-dynamic";
 
 export default async function GenerationsPage() {
+  const user = await requirePageUser();
   let generations: any[] = [];
   try {
     generations = await prisma.generation.findMany({
+      where: generationsOf(user.id),
       orderBy: { createdAt: "desc" },
       include: {
         project: true,

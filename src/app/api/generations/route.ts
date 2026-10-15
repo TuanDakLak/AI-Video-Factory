@@ -1,12 +1,16 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/db";
 import { createGenerationSchema } from "@/lib/validations";
+import { requireApiUser } from "@/lib/auth/session";
+import { ownsContent, ownsGeneration, ownsGoogleAccount } from "@/lib/auth/ownership";
 
 export async function GET(req: NextRequest) {
   try {
+    const user = await requireApiUser();
+    if (user instanceof NextResponse) return user;
     const projectId = req.nextUrl.searchParams.get("projectId");
     const generations = await prisma.generation.findMany({
-      where: projectId ? { projectId } : undefined,
+      where: { project: { ownerId: user.id }, ...(projectId ? { projectId } : {}) },
       orderBy: { createdAt: "desc" },
       include: {
         project: true,
@@ -23,6 +27,8 @@ export async function GET(req: NextRequest) {
 
 export async function POST(req: NextRequest) {
   try {
+    const user = await requireApiUser();
+    if (user instanceof NextResponse) return user;
     const body = await req.json();
     const validated = createGenerationSchema.safeParse(body);
 
@@ -36,12 +42,18 @@ export async function POST(req: NextRequest) {
     const { projectId, contentId, googleAccountId, prompt, model, aspectRatio, duration } = validated.data;
 
     // Verify project exists
-    const project = await prisma.project.findUnique({
-      where: { id: projectId },
+    const project = await prisma.project.findFirst({
+      where: { id: projectId, ownerId: user.id },
     });
 
     if (!project) {
       return NextResponse.json({ error: "Không tìm thấy dự án tương ứng." }, { status: 404 });
+    }
+    if (contentId && !(await ownsContent(user.id, contentId))) {
+      return NextResponse.json({ error: "Không tìm thấy kịch bản." }, { status: 404 });
+    }
+    if (googleAccountId && !(await ownsGoogleAccount(user.id, googleAccountId))) {
+      return NextResponse.json({ error: "Không tìm thấy tài khoản Google." }, { status: 404 });
     }
 
     const generation = await prisma.generation.create({

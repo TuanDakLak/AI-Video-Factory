@@ -4,16 +4,19 @@ import { notFound } from "next/navigation";
 import { ArrowLeft } from "lucide-react";
 import { prisma } from "@/lib/db";
 import SequenceDetailClient from "@/components/sequences/SequenceDetailClient";
+import { requirePageUser } from "@/lib/auth/session";
+import { sequencesOf } from "@/lib/auth/ownership";
 
 export const dynamic = "force-dynamic";
 
 export default async function SequenceDetailPage({ params }: { params: Promise<{ id: string }> }) {
+  const user = await requirePageUser();
   const { id } = await params;
 
   let sequence: any = null;
   try {
-    sequence = await prisma.sequence.findUnique({
-      where: { id },
+    sequence = await prisma.sequence.findFirst({
+      where: { id, ...sequencesOf(user.id) },
       include: {
         project: { select: { id: true, name: true } },
         finalVideo: true,

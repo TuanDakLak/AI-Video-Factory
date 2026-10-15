@@ -1,15 +1,19 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/db";
 import { updateContentSchema } from "@/lib/validations";
+import { requireApiUser } from "@/lib/auth/session";
+import { ownsContent } from "@/lib/auth/ownership";
 
 export async function GET(
   req: NextRequest,
   { params }: { params: Promise<{ id: string }> }
 ) {
   try {
+    const user = await requireApiUser();
+    if (user instanceof NextResponse) return user;
     const { id } = await params;
-    const content = await prisma.content.findUnique({
-      where: { id },
+    const content = await prisma.content.findFirst({
+      where: { id, project: { ownerId: user.id } },
       include: {
         project: true,
         generations: {
@@ -33,7 +37,10 @@ export async function PATCH(
   { params }: { params: Promise<{ id: string }> }
 ) {
   try {
+    const user = await requireApiUser();
+    if (user instanceof NextResponse) return user;
     const { id } = await params;
+    if (!(await ownsContent(user.id, id))) return NextResponse.json({ error: "Không tìm thấy nội dung." }, { status: 404 });
     const body = await req.json();
     const validated = updateContentSchema.safeParse(body);
 
@@ -66,7 +73,10 @@ export async function DELETE(
   { params }: { params: Promise<{ id: string }> }
 ) {
   try {
+    const user = await requireApiUser();
+    if (user instanceof NextResponse) return user;
     const { id } = await params;
+    if (!(await ownsContent(user.id, id))) return NextResponse.json({ error: "Không tìm thấy nội dung." }, { status: 404 });
     await prisma.content.delete({
       where: { id },
     });

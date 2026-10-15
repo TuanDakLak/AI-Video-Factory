@@ -11,7 +11,7 @@ export async function enqueueGenerationById(
   googleAccountId?: string | null,
   opts: { mode?: "RUN" | "DRYRUN" | "RECOVER"; flowProjectUrl?: string } = {}
 ): Promise<{ accountName: string }> {
-  const generation = await prisma.generation.findUnique({ where: { id: generationId } });
+  const generation = await prisma.generation.findUnique({ where: { id: generationId }, include: { project: { select: { ownerId: true } } } });
   if (!generation) throw new Error("Không tìm thấy generation job này.");
 
   // Veo API generations need no Google account / browser
@@ -21,7 +21,8 @@ export async function enqueueGenerationById(
   if (!isApi) {
     if (!accountId) throw new Error("Chưa chọn tài khoản Google cho tác vụ này.");
     const account = await prisma.googleAccount.findUnique({ where: { id: accountId } });
-    if (!account) throw new Error("Tài khoản Google đã chọn không tồn tại.");
+    // same owner as the project: one user's job must never run on another user's Google session / credits
+    if (!account || !account.ownerId || account.ownerId !== generation.project.ownerId) throw new Error("Tài khoản Google đã chọn không tồn tại.");
     if (account.status !== "CONNECTED") {
       throw new Error(`Tài khoản ${account.name} chưa kết nối Google Flow (${account.status}). Vào Cài Đặt để kết nối trước.`);
     }

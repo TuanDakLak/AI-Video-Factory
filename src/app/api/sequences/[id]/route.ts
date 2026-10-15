@@ -2,12 +2,17 @@ import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/db";
 import { updateSequenceSchema } from "@/lib/validations";
 import { SequenceService } from "@/lib/sequence/sequence-service";
+import { requireApiUser } from "@/lib/auth/session";
+import { ownsGoogleAccount, ownsSequence } from "@/lib/auth/ownership";
 
 export const dynamic = "force-dynamic";
 
 export async function GET(_req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   try {
+    const user = await requireApiUser();
+    if (user instanceof NextResponse) return user;
     const { id } = await params;
+    if (!(await ownsSequence(user.id, id))) return NextResponse.json({ error: "Không tìm thấy video nhiều cảnh." }, { status: 404 });
     const sequence = await prisma.sequence.findUnique({
       where: { id },
       include: {
@@ -30,13 +35,19 @@ export async function GET(_req: NextRequest, { params }: { params: Promise<{ id:
 
 export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   try {
+    const user = await requireApiUser();
+    if (user instanceof NextResponse) return user;
     const { id } = await params;
+    if (!(await ownsSequence(user.id, id))) return NextResponse.json({ error: "Không tìm thấy video nhiều cảnh." }, { status: 404 });
     const parsed = updateSequenceSchema.safeParse(await req.json());
     if (!parsed.success) {
       return NextResponse.json({ error: parsed.error.errors[0]?.message || "Dữ liệu không hợp lệ" }, { status: 400 });
     }
     const current = await prisma.sequence.findUnique({ where: { id } });
     if (!current) return NextResponse.json({ error: "Không tìm thấy video nhiều cảnh." }, { status: 404 });
+    if (parsed.data.googleAccountId && !(await ownsGoogleAccount(user.id, parsed.data.googleAccountId))) {
+      return NextResponse.json({ error: "Không tìm thấy tài khoản Google đã chọn." }, { status: 404 });
+    }
 
     const { styleBible, tags, ...rest } = parsed.data;
     const updated = await prisma.sequence.update({
@@ -70,7 +81,10 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
 
 export async function DELETE(_req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   try {
+    const user = await requireApiUser();
+    if (user instanceof NextResponse) return user;
     const { id } = await params;
+    if (!(await ownsSequence(user.id, id))) return NextResponse.json({ error: "Không tìm thấy video nhiều cảnh." }, { status: 404 });
     const ok = await SequenceService.remove(id);
     if (!ok) return NextResponse.json({ error: "Không tìm thấy video nhiều cảnh." }, { status: 404 });
     return NextResponse.json({ success: true });

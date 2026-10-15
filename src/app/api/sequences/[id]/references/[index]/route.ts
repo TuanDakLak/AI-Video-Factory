@@ -3,12 +3,15 @@ import path from "path";
 import { prisma } from "@/lib/db";
 import { storage } from "@/lib/storage";
 import { parseKeys } from "@/lib/sequence/attachments";
+import { requireApiUser } from "@/lib/auth/session";
+import { ownsGoogleAccount, ownsSequence } from "@/lib/auth/ownership";
 
 export const dynamic = "force-dynamic";
 
 const MIME: Record<string, string> = { ".png": "image/png", ".jpg": "image/jpeg", ".jpeg": "image/jpeg", ".webp": "image/webp" };
 
-async function load(id: string, indexStr: string) {
+async function load(userId: string, id: string, indexStr: string) {
+  if (!(await ownsSequence(userId, id))) return null;
   const seq = await prisma.sequence.findUnique({ where: { id } });
   const index = parseInt(indexStr, 10);
   if (!seq || Number.isNaN(index)) return null;
@@ -18,8 +21,10 @@ async function load(id: string, indexStr: string) {
 }
 
 export async function GET(_req: NextRequest, { params }: { params: Promise<{ id: string; index: string }> }) {
+  const user = await requireApiUser();
+  if (user instanceof NextResponse) return user;
   const { id, index } = await params;
-  const found = await load(id, index);
+  const found = await load(user.id, id, index);
   if (!found) return NextResponse.json({ error: "Không tìm thấy ảnh." }, { status: 404 });
   const key = found.keys[found.index];
   if (!storage.fileExists(key)) return NextResponse.json({ error: "File ảnh không còn trên đĩa." }, { status: 404 });
@@ -30,8 +35,10 @@ export async function GET(_req: NextRequest, { params }: { params: Promise<{ id:
 }
 
 export async function DELETE(_req: NextRequest, { params }: { params: Promise<{ id: string; index: string }> }) {
+  const user = await requireApiUser();
+  if (user instanceof NextResponse) return user;
   const { id, index } = await params;
-  const found = await load(id, index);
+  const found = await load(user.id, id, index);
   if (!found) return NextResponse.json({ error: "Không tìm thấy ảnh." }, { status: 404 });
   const [removed] = found.keys.splice(found.index, 1);
   await storage.deleteFile(removed);

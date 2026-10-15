@@ -2,14 +2,17 @@ import React from "react";
 import { prisma } from "@/lib/db";
 import { LIBRARY_VIDEO_WHERE } from "@/lib/video-library";
 import VideoLibraryClient from "@/components/videos/VideoLibraryClient";
+import { requirePageUser } from "@/lib/auth/session";
+import { videoAssetsOf } from "@/lib/auth/ownership";
 
 export const dynamic = "force-dynamic";
 
 export default async function VideosPage() {
+  const user = await requirePageUser();
   let videos: any[] = [];
   try {
     videos = await prisma.videoAsset.findMany({
-      where: LIBRARY_VIDEO_WHERE,
+      where: { AND: [LIBRARY_VIDEO_WHERE, videoAssetsOf(user.id)] },
       orderBy: { createdAt: "desc" },
       include: {
         project: true,

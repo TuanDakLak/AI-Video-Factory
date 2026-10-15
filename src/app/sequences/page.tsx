@@ -3,13 +3,17 @@ import Link from "next/link";
 import { Layers, Plus } from "lucide-react";
 import { prisma } from "@/lib/db";
 import { StatusBadge } from "@/components/ui/Badge";
+import { requirePageUser } from "@/lib/auth/session";
+import { sequencesOf } from "@/lib/auth/ownership";
 
 export const dynamic = "force-dynamic";
 
 export default async function SequencesPage() {
+  const user = await requirePageUser();
   let sequences: any[] = [];
   try {
     sequences = await prisma.sequence.findMany({
+      where: sequencesOf(user.id),
       orderBy: { createdAt: "desc" },
       include: {
         project: { select: { id: true, name: true } },

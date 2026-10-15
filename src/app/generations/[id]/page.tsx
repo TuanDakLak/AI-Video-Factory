@@ -4,6 +4,8 @@ import { notFound } from "next/navigation";
 import { prisma } from "@/lib/db";
 import { ArrowLeft } from "lucide-react";
 import GenerationDetailClient from "@/components/generations/GenerationDetailClient";
+import { requirePageUser } from "@/lib/auth/session";
+import { generationsOf } from "@/lib/auth/ownership";
 
 export const dynamic = "force-dynamic";
 
@@ -12,12 +14,13 @@ export default async function GenerationDetailPage({
 }: {
   params: Promise<{ id: string }>;
 }) {
+  const user = await requirePageUser();
   const { id } = await params;
 
   let generation = null;
   try {
-    generation = await prisma.generation.findUnique({
-      where: { id },
+    generation = await prisma.generation.findFirst({
+      where: { id, ...generationsOf(user.id) },
       include: {
         project: true,
         content: true,

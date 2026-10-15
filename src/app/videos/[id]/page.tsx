@@ -4,6 +4,8 @@ import { notFound } from "next/navigation";
 import { prisma } from "@/lib/db";
 import { ArrowLeft } from "lucide-react";
 import VideoDetailViewClient from "@/components/videos/VideoDetailViewClient";
+import { requirePageUser } from "@/lib/auth/session";
+import { videoAssetsOf } from "@/lib/auth/ownership";
 
 export const dynamic = "force-dynamic";
 
@@ -12,12 +14,13 @@ export default async function VideoDetailPage({
 }: {
   params: Promise<{ id: string }>;
 }) {
+  const user = await requirePageUser();
   const { id } = await params;
 
   let video = null;
   try {
-    video = await prisma.videoAsset.findUnique({
-      where: { id },
+    video = await prisma.videoAsset.findFirst({
+      where: { id, ...videoAssetsOf(user.id) },
       include: {
         project: true,
         generation: {

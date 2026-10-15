@@ -2,6 +2,8 @@ import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/db";
 import { storage } from "@/lib/storage";
 import { parseKeys } from "@/lib/sequence/attachments";
+import { requireApiUser } from "@/lib/auth/session";
+import { ownsGoogleAccount, ownsSequence } from "@/lib/auth/ownership";
 
 export const dynamic = "force-dynamic";
 
@@ -12,7 +14,10 @@ const ALLOWED = ["image/png", "image/jpeg", "image/webp"];
 /** Upload reference images (product / character photos). Attached to scenes in Flow as "Ingredients". */
 export async function POST(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   try {
+    const user = await requireApiUser();
+    if (user instanceof NextResponse) return user;
     const { id } = await params;
+    if (!(await ownsSequence(user.id, id))) return NextResponse.json({ error: "Không tìm thấy video nhiều cảnh." }, { status: 404 });
     const seq = await prisma.sequence.findUnique({ where: { id } });
     if (!seq) return NextResponse.json({ error: "Không tìm thấy video nhiều cảnh." }, { status: 404 });
 

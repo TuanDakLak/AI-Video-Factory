@@ -52,7 +52,12 @@ class LocalStorageProvider implements IStorageProvider {
 
   public getFilePath(storageKey: string): string {
     const normalizedKey = storageKey.replace(/^\/+/, "");
-    return path.join(this.baseDir, normalizedKey);
+    const resolved = path.resolve(this.baseDir, normalizedKey);
+    // a key must never escape the storage root ("../", absolute paths, drive letters)
+    if (resolved !== this.baseDir && !resolved.startsWith(this.baseDir + path.sep)) {
+      throw new Error(`Invalid storage key: ${storageKey}`);
+    }
+    return resolved;
   }
 
   public async readFile(storageKey: string): Promise<Buffer> {

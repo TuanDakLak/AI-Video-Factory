@@ -1,13 +1,17 @@
 import React from "react";
 import { prisma } from "@/lib/db";
 import SettingsClient from "@/components/settings/SettingsClient";
+import { requirePageUser } from "@/lib/auth/session";
+import { googleAccountsOf } from "@/lib/auth/ownership";
 
 export const dynamic = "force-dynamic";
 
 export default async function SettingsPage() {
+  const user = await requirePageUser();
   let googleAccounts: any[] = [];
   try {
     googleAccounts = await prisma.googleAccount.findMany({
+      where: googleAccountsOf(user.id),
       orderBy: { createdAt: "asc" },
       include: {
         _count: { select: { generations: true } },

@@ -2,13 +2,18 @@ import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/db";
 import { TransitionEnum } from "@/lib/validations";
 import { SequenceService } from "@/lib/sequence/sequence-service";
+import { requireApiUser } from "@/lib/auth/session";
+import { ownsGoogleAccount, ownsSequence } from "@/lib/auth/ownership";
 
 export const dynamic = "force-dynamic";
 
 /** (Re)assemble the final video from the existing scene clips. Runs in the background; the UI polls the status. */
 export async function POST(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   try {
+    const user = await requireApiUser();
+    if (user instanceof NextResponse) return user;
     const { id } = await params;
+    if (!(await ownsSequence(user.id, id))) return NextResponse.json({ error: "Không tìm thấy video nhiều cảnh." }, { status: 404 });
     const body = await req.json().catch(() => ({}));
     const transition = TransitionEnum.safeParse(body?.transition);
 

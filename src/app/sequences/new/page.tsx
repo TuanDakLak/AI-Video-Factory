@@ -3,6 +3,8 @@ import Link from "next/link";
 import { ArrowLeft } from "lucide-react";
 import { prisma } from "@/lib/db";
 import NewSequenceForm from "@/components/sequences/NewSequenceForm";
+import { requirePageUser } from "@/lib/auth/session";
+import { contentsOf, googleAccountsOf, projectsOf } from "@/lib/auth/ownership";
 
 export const dynamic = "force-dynamic";
 
@@ -11,6 +13,7 @@ export default async function NewSequencePage({
 }: {
   searchParams: Promise<{ projectId?: string; contentId?: string }>;
 }) {
+  const user = await requirePageUser();
   const { projectId, contentId } = await searchParams;
 
   let projects: Array<{ id: string; name: string }> = [];
@@ -18,12 +21,14 @@ export default async function NewSequencePage({
   let googleAccounts: any[] = [];
   try {
     [projects, contents, googleAccounts] = await Promise.all([
-      prisma.project.findMany({ orderBy: { createdAt: "desc" }, select: { id: true, name: true } }),
+      prisma.project.findMany({ where: projectsOf(user.id), orderBy: { createdAt: "desc" }, select: { id: true, name: true } }),
       prisma.content.findMany({
+        where: contentsOf(user.id),
         orderBy: { createdAt: "desc" },
         select: { id: true, projectId: true, title: true, aspectRatio: true, duration: true },
       }),
       prisma.googleAccount.findMany({
+        where: googleAccountsOf(user.id),
         orderBy: { createdAt: "asc" },
         select: { id: true, name: true, status: true, lastKnownFlowCredits: true },
       }),
