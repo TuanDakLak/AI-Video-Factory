@@ -40,9 +40,4 @@ export function authSecret(): Uint8Array {
   return cachedSecret;
 }
 
-/** Only same-site relative paths are accepted as post-login redirect targets (no open redirect). */
-export function safeNextPath(next: string | null | undefined, fallback = "/dashboard"): string {
-  if (!next || !next.startsWith("/") || next.startsWith("//") || next.startsWith("/\\")) return fallback;
-  if (next.startsWith("/api/auth/")) return fallback;
-  return next;
-}
+export { safeNextPath } from "./redirect";

@@ -35,6 +35,11 @@ async function run() {
     console.log("\n--- 2. Redirect target ---");
     assert(safeNextPath("/videos?x=1") === "/videos?x=1", "relative path kept");
     assert(safeNextPath("//evil.com") === "/dashboard" && safeNextPath("https://evil.com") === "/dashboard" && safeNextPath("/\\evil.com") === "/dashboard", "open redirects refused");
+    // the URL parser drops tabs/newlines and reads "\" as "/": these all used to resolve to evil.com
+    for (const bad of ["/\t/evil.com", "/\n/evil.com", "/\r//evil.com", "/\\/evil.com", "/\u0000/evil.com", "javascript:alert(1)", "/api/auth/refresh"]) {
+      assert(safeNextPath(bad) === "/dashboard", `redirect target refused: ${JSON.stringify(bad)}`);
+    }
+    assert(safeNextPath("/sequences/abc?tab=1#x") === "/sequences/abc?tab=1#x", "normal path with query and hash kept");
 
     console.log("\n--- 3. Passwords (argon2id) ---");
     const ph = await hashPassword("correct horse battery");

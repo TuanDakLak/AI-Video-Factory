@@ -4,6 +4,7 @@ import React, { useState } from "react";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { Loader2, Video } from "lucide-react";
+import { safeNextPath } from "@/lib/auth/redirect";
 
 /** Login and sign-up share one form; cookies are set by the API (httpOnly), nothing is stored in JS. */
 export function AuthForm({ mode }: { mode: "login" | "register" }) {
@@ -32,9 +33,8 @@ export function AuthForm({ mode }: { mode: "login" | "register" }) {
         setError(data.error || "Không thành công, vui lòng thử lại.");
         return;
       }
-      // only same-site relative targets
-      const target = next && next.startsWith("/") && !next.startsWith("//") && !next.startsWith("/api/auth/") ? next : "/dashboard";
-      router.replace(target);
+      // same rule as the server: only targets that resolve to our own origin
+      router.replace(safeNextPath(next));
       router.refresh();
     } catch {
       setError("Không kết nối được máy chủ.");
