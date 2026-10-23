@@ -7,6 +7,7 @@ import { toPreset } from "@/lib/presets";
 import { GENRE_KEYS, GenreKey } from "@/lib/content/genres";
 import { clipCount, scriptToBrief, writeScript } from "@/lib/content/script-writer";
 import { AGENT_CREDITS_PER_CLIP } from "@/lib/sequence/agent-prompt";
+import { flowLooksBroken } from "./reliability";
 
 /**
  * Topic inbox + production scheduler.
@@ -205,11 +206,44 @@ export async function channelCreditsToday(channelId: string): Promise<number> {
   return rows.reduce((s, r) => s + (parseFloat(r.message) || 0), 0);
 }
 
-/** Topics whose video finished or stopped: reflect it in the inbox. */
+export const MAX_AUTO_RETRIES = 1;
+
+/** Credits approved for this sequence so far (ledger events written when the tool clicks "Phê duyệt"). */
+async function creditsSpentOn(sequenceId: string): Promise<number> {
+  const rows = await prisma.generationEvent.findMany({ where: { type: CREDITS_SPENT_EVENT, generation: { sequenceId } }, select: { message: true } });
+  return rows.reduce((s, r) => s + (parseFloat(r.message) || 0), 0);
+}
+
+/**
+ * A video stopped and needs attention. Before giving up:
+ *  - nothing was spent yet (UI glitch before approval, lost job…) -> run it again (once): costs nothing unless it succeeds;
+ *  - credits were spent (clips probably exist in Flow) -> "recover clips from Flow" (0 credit, once), never re-render.
+ * Returns a note, or null when the topic must be marked FAILED.
+ */
+async function autoHeal(t: Topic & { sequence: { id: string; continuity: string; errorMessage: string | null } }): Promise<string | null> {
+  const spent = await creditsSpentOn(t.sequence.id);
+  try {
+    if (spent === 0 && t.autoRetries < MAX_AUTO_RETRIES) {
+      await prisma.topic.update({ where: { id: t.id }, data: { autoRetries: { increment: 1 } } });
+      await SequenceService.start(t.sequence.id);
+      return `Tự chạy lại lần ${t.autoRetries + 1} (lỗi xảy ra trước khi tốn credit): ${t.sequence.errorMessage || ""}`.trim();
+    }
+    if (spent > 0 && !t.autoRecovered && t.sequence.continuity === "FLOW_AGENT") {
+      await prisma.topic.update({ where: { id: t.id }, data: { autoRecovered: true } });
+      await SequenceService.start(t.sequence.id, { mode: "RECOVER" });
+      return `Đã tốn ${spent} credit: đang tự khôi phục clip từ project Flow (0 credit) thay vì render lại.`;
+    }
+  } catch (e: any) {
+    return null; // could not even queue the retry/recovery: report the original problem
+  }
+  return null;
+}
+
+/** Topics whose video finished or stopped: reflect it in the inbox (with automatic retry / recovery). */
 async function syncProducing(): Promise<void> {
   const producing = await prisma.topic.findMany({
     where: { status: "PRODUCING", sequenceId: { not: null } },
-    include: { sequence: { select: { status: true, errorMessage: true, finalVideo: { select: { id: true } } } } },
+    include: { sequence: { select: { id: true, status: true, continuity: true, errorMessage: true, finalVideo: { select: { id: true } } } } },
   });
   for (const t of producing) {
     const s = t.sequence;
@@ -218,6 +252,11 @@ async function syncProducing(): Promise<void> {
       await prisma.topic.update({ where: { id: t.id }, data: { status: "READY", finishedAt: new Date() } });
       await notifyWebhook("topic.ready", { topicId: t.id, title: t.title, videoAssetId: s.finalVideo.id }).catch(() => {});
     } else if (s.status === "NEEDS_USER_ACTION") {
+      const note = await autoHeal({ ...t, sequence: s });
+      if (note) {
+        await prisma.topic.update({ where: { id: t.id }, data: { errorMessage: `Lưu ý: ${note}`.slice(0, 1000) } });
+        continue;
+      }
       await prisma.topic.update({ where: { id: t.id }, data: { status: "FAILED", finishedAt: new Date(), errorMessage: s.errorMessage || "Video cần thao tác thủ công." } });
       await notifyWebhook("topic.failed", { topicId: t.id, title: t.title, error: s.errorMessage }).catch(() => {});
     }
@@ -264,6 +303,11 @@ export async function schedulerTick(now = new Date()): Promise<TickReport> {
     }
     if (!(await hasConnectedAccount(ch))) {
       report.skipped.push(`${ch.name}: chưa có tài khoản Google nào kết nối Flow`);
+      continue;
+    }
+    if (await flowLooksBroken(ch)) {
+      // every usable account failed its last Flow UI check: a paid render would most likely fail too
+      report.skipped.push(`${ch.name}: tạm dừng vì lần kiểm tra giao diện Flow gần nhất bị lỗi`);
       continue;
     }
     const t = await produceTopic(next.id);

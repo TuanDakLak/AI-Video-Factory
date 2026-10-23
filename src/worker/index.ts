@@ -8,6 +8,7 @@ import { SequenceService } from "../lib/sequence/sequence-service";
 import { VeoApiService } from "../lib/automation/veo-api";
 import { notifyWebhook } from "../lib/automation/notify";
 import { automationTick } from "../lib/automation/scheduler";
+import { accountDueForHealthCheck, reconcileOrphans, releaseAllLocks } from "../lib/automation/reliability";
 
 console.log("==================================================");
 console.log("🚀 Google Flow Automation Worker (Phase 3)");
@@ -137,6 +138,26 @@ if (tickSec > 0) {
     if (ticking) return; // a pass can take a while (LLM script writing): never overlap
     ticking = true;
     try {
+      // 1. self-healing: lost jobs, stuck account locks
+      const rec = await reconcileOrphans({ workerBusy: jobsRunning > 0 });
+      if (rec.failedSafe || rec.needsRecovery || rec.unlocked) {
+        console.log(`[Reliability] lost jobs: ${rec.failedSafe} before submit (re-runnable), ${rec.needsRecovery} after submit (recover); unlocked accounts: ${rec.unlocked}`);
+      }
+      // 2. daily Flow UI check (0 credit) for accounts automation relies on, only while no render is running
+      if (jobsRunning === 0 && !healthRunning) {
+        const accountId = await accountDueForHealthCheck();
+        if (accountId) {
+          healthRunning = true;
+          try {
+            const h = await FlowAutomationService.healthCheck(accountId);
+            console.log(`[Health] ${h.accountName}: ${h.ok ? "OK" : "FAILED " + h.items.filter((i) => !i.ok).map((i) => i.name).join(", ")}`);
+            if (!h.ok) await notifyWebhook("flow.health.failed", { accountName: h.accountName, failed: h.items.filter((i) => !i.ok) });
+          } finally {
+            healthRunning = false;
+          }
+        }
+      }
+      // 3. research, inbox, production
       const r = await automationTick();
       if (r.research) console.log(`[Research] ${r.research}`);
       if (r.autoApproved || r.started.length || r.skipped.length) {
@@ -149,7 +170,11 @@ if (tickSec > 0) {
     }
   };
   setInterval(tick, tickSec * 1000);
-  setTimeout(tick, 5000);
+  // fresh start: nothing can be running yet, so every account lock is stale
+  releaseAllLocks()
+    .then((n) => n && console.log(`[Reliability] released ${n} stale account lock(s) on startup`))
+    .catch(() => {})
+    .finally(() => setTimeout(tick, 5000));
   console.log(`[Scheduler] topic inbox every ${tickSec}s`);
 }
 

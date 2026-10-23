@@ -6,6 +6,11 @@ import { clipCount, scriptToBrief, writeScript } from "../lib/content/script-wri
 import { buildAgentBatchPrompt } from "../lib/sequence/agent-prompt";
 import { nichePhrases, parseGoogleNews, parseTrendsRss, parseWikipediaTop } from "../lib/research/sources";
 import { channelsNeedingResearch, inboxSize, inboxTarget, researchChannel } from "../lib/research/researcher";
+import { flowLooksBroken, reconcileOrphans } from "../lib/automation/reliability";
+import { saveHealthReport } from "../lib/automation/health-store";
+import fs from "fs";
+import os from "os";
+import path from "path";
 
 /**
  * Topic inbox / channels / genre scripts. Needs Postgres. Never reaches Flow: the test users own no Google account, so
@@ -116,6 +121,45 @@ async function run() {
     assert(!(await channelsNeedingResearch()).some((c) => c.id === ch.id), "and not again within 6 hours");
     const noLlm = await researchChannel(await prisma.channel.findUniqueOrThrow({ where: { id: ch.id } }), { count: 2 });
     assert(noLlm.created === 0 && noLlm.note.includes("GEMINI_API_KEY"), "without an LLM research is skipped with a clear note (no paid calls)");
+
+    console.log("\n--- 7. Self-healing ---");
+    const proj = await prisma.project.create({ data: { ownerId: a.id, name: "P3 test", topic: "t" } });
+    const mk = (status: string) => prisma.generation.create({ data: { projectId: proj.id, prompt: "x", status: status as any } });
+    const lostBefore = await mk("QUEUED");
+    const lostAfter = await mk("GENERATING");
+    const fresh = await mk("QUEUED");
+    // job rows are only orphans after a grace period (an enqueue may still be in flight)
+    await prisma.$executeRaw`UPDATE "Generation" SET "updatedAt" = NOW() - INTERVAL '10 minutes' WHERE id IN (${lostBefore.id}, ${lostAfter.id})`;
+    const rec = await reconcileOrphans({ workerBusy: true, onlyIds: [lostBefore.id, lostAfter.id, fresh.id] });
+    const [g1, g2, g3] = await Promise.all([lostBefore, lostAfter, fresh].map((g) => prisma.generation.findUniqueOrThrow({ where: { id: g.id } })));
+    assert(g1.status === "FAILED" && /chưa tốn credit/.test(g1.errorMessage || ""), "job lost before the prompt reached Flow -> FAILED, safe to re-run");
+    assert(g2.status === "NEEDS_USER_ACTION" && /Khôi phục clip/.test(g2.errorMessage || ""), "job lost after submission -> recover clips (0 credit), never re-render blindly");
+    assert(g3.status === "QUEUED" && rec.failedSafe === 1 && rec.needsRecovery === 1, "a job enqueued moments ago is left alone");
+
+    // a stopped video with no credit spent and no Google account to retry with -> FAILED after one counted attempt
+    await prisma.channel.update({ where: { id: ch.id }, data: { automationEnabled: false } });
+    const seq = await prisma.sequence.create({ data: { projectId: proj.id, title: "s", brief: "b", styleBible: "", continuity: "FLOW_AGENT", status: "NEEDS_USER_ACTION", errorMessage: "Không tìm thấy ô nhập prompt" } });
+    await prisma.generation.create({ data: { projectId: proj.id, sequenceId: seq.id, sceneIndex: 0, prompt: "x", status: "FAILED" } });
+    const healing = await prisma.topic.create({ data: { channelId: ch.id, title: "Heal me", normalizedTitle: "heal me", genre: "short_film", durationSec: 30, status: "PRODUCING", sequenceId: seq.id } });
+    await schedulerTick();
+    const healed = await prisma.topic.findUniqueOrThrow({ where: { id: healing.id } });
+    assert(healed.autoRetries === 1 && healed.status === "FAILED" && /ô nhập prompt/.test(healed.errorMessage || ""), "no credit spent -> one automatic re-run is attempted; if it cannot start, the original error is reported");
+
+    // Flow UI health gate (health history file written in a temp dir, never the real one)
+    const cwd0 = process.cwd();
+    const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "health-"));
+    process.chdir(tmp);
+    try {
+      const acc = await prisma.googleAccount.create({ data: { ownerId: a.id, name: "A", label: "x", profileDir: `u-${tag}-h`, status: "CONNECTED" } });
+      assert(!(await flowLooksBroken({ ownerId: a.id, googleAccountId: null })), "no health report yet -> production allowed");
+      saveHealthReport({ at: new Date().toISOString(), accountId: acc.id, accountName: "A", ok: false, credits: null, items: [{ name: "prompt-box", ok: false, detail: "x" }] });
+      assert(await flowLooksBroken({ ownerId: a.id, googleAccountId: null }), "last Flow UI check failed -> production paused");
+      saveHealthReport({ at: new Date().toISOString(), accountId: acc.id, accountName: "A", ok: true, credits: 100, items: [] });
+      assert(!(await flowLooksBroken({ ownerId: a.id, googleAccountId: null })), "a later passing check resumes production");
+    } finally {
+      process.chdir(cwd0);
+      fs.rmSync(tmp, { recursive: true, force: true });
+    }
   } finally {
     await prisma.user.deleteMany({ where: { id: { in: users } } }); // cascades channels, topics, accounts
   }

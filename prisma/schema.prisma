@@ -334,6 +334,8 @@ model Topic {
   sequenceId      String?     @unique
   sequence        Sequence?   @relation(fields: [sequenceId], references: [id], onDelete: SetNull)
   errorMessage    String?     @db.Text
+  autoRetries     Int         @default(0) // automatic re-runs after a failure that cost no credit
+  autoRecovered   Boolean     @default(false) // automatic 0-credit "recover clips from Flow" already tried
   createdAt       DateTime    @default(now())
   updatedAt       DateTime    @updatedAt
 

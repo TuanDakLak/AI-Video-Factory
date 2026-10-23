@@ -74,7 +74,7 @@ TikTok, Facebook Reels: OAuth từng kênh, gói đăng bài, nhãn nội dung A
 |---|---|---|
 | P1 | Kênh trong DB (B4), mẫu thể loại + LLM viết kịch bản/metadata (A1–A4), Hộp chủ đề + duyệt (B1), lịch & hạn mức (B3), độ dài 30/60/90 (D1) | xong (chờ chạy thử end-to-end với LLM có credit) |
 | P2 | Tự nghiên cứu chủ đề + chống trùng (B2) | xong |
-| P3 | Dọn job ma, tự khôi phục, health-check định kỳ, chọn tài khoản theo credit (C1–C4) | |
+| P3 | Dọn job ma, tự khôi phục, health-check định kỳ, chọn tài khoản theo credit (C1–C4) | xong |
 | P4 | Âm thanh: chuẩn hoá loudness, nối mượt (A5) | |
 | P5 | Đăng TikTok / Facebook Reels (E) | |
 
@@ -108,3 +108,15 @@ Gemini quá tải (503/429): thử lại sau 2s, 6s rồi chuyển `gemini-2.5-f
 
 5 video 90s/ngày ≈ 5 kịch bản + 1–2 lượt tìm chủ đề ≈ 7 lệnh gọi ≈ **$0.04–0.05/ngày (~1.000–1.300đ), ~$1.5/tháng** nếu trả phí;
 **$0 trên free tier** (7 lệnh/ngày, xa dưới hạn mức hằng ngày). Rủi ro tiền thật duy nhất là Veo API dự phòng (`VIDEO_FALLBACK_TO_API`, ~$0.10/giây video) — đang tắt.
+
+## 8. P3: tự phục hồi
+
+| Tình huống | Hệ thống tự làm |
+|---|---|
+| Worker chết / khởi động lại khi có job | Job chưa gửi prompt → FAILED (chạy lại được, chưa tốn credit). Job đã gửi → NEEDS_USER_ACTION (khôi phục clip) |
+| Tài khoản Google kẹt IN_USE | Mở khoá khi worker khởi động, hoặc khi kẹt > 15 phút mà không có job nào chạy |
+| Video dừng, **chưa tốn credit** | Tự chạy lại 1 lần |
+| Video dừng, **đã tốn credit** (chế độ Flow Agent) | Tự "khôi phục clip từ Flow" 1 lần (0 credit), không render lại |
+| Vẫn hỏng | Chủ đề → Lỗi + webhook `topic.failed` |
+| Giao diện Flow đổi | Kiểm tra UI mỗi 24h cho tài khoản kênh tự động dùng (0 credit); nếu mọi tài khoản lỗi → tạm dừng sản xuất tới khi lần kiểm tra sau ổn |
+| Nhiều tài khoản | Ưu tiên tài khoản còn nhiều credit nhất |

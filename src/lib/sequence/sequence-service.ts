@@ -175,7 +175,11 @@ export class SequenceService {
       accountId = null; // stale/foreign account stored on the sequence: pick one of the owner's
     }
     if (!accountId && !apiOnly) {
-      const acc = await prisma.googleAccount.findFirst({ where: { ownerId: owner, status: "CONNECTED", lockStatus: "AVAILABLE" } });
+      const acc = await prisma.googleAccount.findFirst({
+        where: { ownerId: owner, status: "CONNECTED", lockStatus: "AVAILABLE" },
+        // spread usage: the account with the most Flow credits left first (unknown balance last)
+        orderBy: [{ lastKnownFlowCredits: { sort: "desc", nulls: "last" } }, { createdAt: "asc" }],
+      });
       if (!acc) throw new Error("Không có tài khoản Google nào đang CONNECTED. Vui lòng kết nối tại Cài Đặt.");
       accountId = acc.id;
     }
