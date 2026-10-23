@@ -75,7 +75,7 @@ TikTok, Facebook Reels: OAuth từng kênh, gói đăng bài, nhãn nội dung A
 | P1 | Kênh trong DB (B4), mẫu thể loại + LLM viết kịch bản/metadata (A1–A4), Hộp chủ đề + duyệt (B1), lịch & hạn mức (B3), độ dài 30/60/90 (D1) | xong (chờ chạy thử end-to-end với LLM có credit) |
 | P2 | Tự nghiên cứu chủ đề + chống trùng (B2) | xong |
 | P3 | Dọn job ma, tự khôi phục, health-check định kỳ, chọn tài khoản theo credit (C1–C4) | xong |
-| P4 | Âm thanh: chuẩn hoá loudness, nối mượt (A5) | |
+| P4 | Âm thanh: chuẩn hoá loudness, nối mượt (A5) | xong |
 | P5 | Đăng TikTok / Facebook Reels (E) | |
 
 ## 5. Ghi chú khi làm P1
@@ -120,3 +120,12 @@ Gemini quá tải (503/429): thử lại sau 2s, 6s rồi chuyển `gemini-2.5-f
 | Vẫn hỏng | Chủ đề → Lỗi + webhook `topic.failed` |
 | Giao diện Flow đổi | Kiểm tra UI mỗi 24h cho tài khoản kênh tự động dùng (0 credit); nếu mọi tài khoản lỗi → tạm dừng sản xuất tới khi lần kiểm tra sau ổn |
 | Nhiều tài khoản | Ưu tiên tài khoản còn nhiều credit nhất |
+
+## 9. P4: âm thanh
+
+- Mỗi clip được đưa về **-14 LUFS, true peak -1.5 dBTP** (EBU R128 `loudnorm`), mức TikTok / Reels / Shorts phát.
+  Đo thử: 2 clip chênh 29 LU → sau ghép lệch 0.0 LU. Video báo đốm cũ: các đoạn -16.0 đến -17.7 LUFS, cả video -16.6 (nhỏ hơn chuẩn 2.6 dB).
+- Âm thanh mỗi clip được cắt/đệm đúng bằng độ dài hình: clip AI có tiếng ngắn hơn hình không còn làm lệch tiếng các clip sau.
+- Fade 30 ms / 80 ms ở mỗi chỗ cắt thẳng: hết tiếng "bụp" khi nối.
+- Tắt bằng `AUDIO_NORMALIZE=false`.
+- Chưa làm: nhạc nền (cần thư viện nhạc có bản quyền), phụ đề.

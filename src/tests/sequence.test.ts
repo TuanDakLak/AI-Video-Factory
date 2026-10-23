@@ -1,7 +1,7 @@
 import fs from "fs";
 import os from "os";
 import path from "path";
-import { execFileSync } from "child_process";
+import { execFileSync, spawnSync } from "child_process";
 import { createSequenceSchema, updateSequenceSchema, startSequenceSchema, automationRequestSchema } from "../lib/validations";
 import { buildAgentBatchPrompt, buildAgentNudge } from "../lib/sequence/agent-prompt";
 import { assertCanSpend, creditLimits } from "../lib/sequence/credit-guard";
@@ -11,7 +11,7 @@ import { makeSolidPng } from "../lib/automation/test-png";
 import { readHealthHistory, saveHealthReport } from "../lib/automation/health-store";
 import { notifyWebhook } from "../lib/automation/notify";
 import { composeScenePrompt, planScenes, sceneCountFor } from "../lib/sequence/scene-planner";
-import { assembleClips, extractLastFrame, probeClip } from "../lib/sequence/assembler";
+import { TARGET_LUFS, assembleClips, extractLastFrame, probeClip } from "../lib/sequence/assembler";
 import { checkPublishReadiness, detectAspect } from "../lib/publish/readiness";
 
 function assert(condition: boolean, message: string) {
@@ -119,6 +119,31 @@ async function run() {
     let threw = false;
     try { await assembleClips({ inputs: [path.join(dir, "missing.mp4")], outputPath: path.join(dir, "x.mp4"), transition: "CUT" }); } catch { threw = true; }
     assert(threw, "missing clip throws a clear error");
+
+    // loudness: a whisper-quiet clip and a very loud clip end up at the same level (EBU R128 integrated loudness)
+    const lufs = (file: string, start: number, dur: number) => {
+      const r = spawnSync(ff, ["-hide_banner", "-nostats", "-ss", String(start), "-t", String(dur), "-i", file, "-af", "ebur128", "-f", "null", "-"], { encoding: "utf8" });
+      const m = /I:\s+(-?[\d.]+) LUFS/.exec(r.stderr.slice(r.stderr.lastIndexOf("Summary")));
+      return m ? parseFloat(m[1]) : NaN;
+    };
+    const quiet = mk("quiet.mp4", ["-f", "lavfi", "-i", "testsrc=duration=4:size=720x1280:rate=30", "-f", "lavfi", "-i", "sine=frequency=300:duration=4,volume=-35dB", "-c:a", "aac", "-shortest"]);
+    const loud = mk("loud.mp4", ["-f", "lavfi", "-i", "testsrc=duration=4:size=720x1280:rate=30", "-f", "lavfi", "-i", "sine=frequency=300:duration=4,volume=-6dB", "-c:a", "aac", "-shortest"]);
+    const rawGap = Math.abs(lufs(quiet, 0, 4) - lufs(loud, 0, 4));
+    const lev = await assembleClips({ inputs: [quiet, loud], outputPath: path.join(dir, "lev.mp4"), transition: "CUT" });
+    const q1 = lufs(lev.outputPath, 0.5, 3);
+    const l1 = lufs(lev.outputPath, 4.5, 3);
+    assert(rawGap > 20 && Math.abs(q1 - l1) < 2, `clips levelled: ${rawGap.toFixed(1)} LU apart before, ${Math.abs(q1 - l1).toFixed(1)} LU after`);
+    assert(Math.abs(q1 - TARGET_LUFS) < 2 && Math.abs(l1 - TARGET_LUFS) < 2, `both near ${TARGET_LUFS} LUFS (${q1.toFixed(1)} / ${l1.toFixed(1)})`);
+    const raw = await assembleClips({ inputs: [quiet, loud], outputPath: path.join(dir, "raw.mp4"), transition: "CUT", normalizeAudio: false });
+    assert(Math.abs(lufs(raw.outputPath, 0.5, 3) - lufs(raw.outputPath, 4.5, 3)) > 20, "normalisation can be switched off (AUDIO_NORMALIZE=false)");
+
+    // A/V sync: a clip whose audio is shorter than its picture must not shift the next clips
+    const shortAudio = mk("short-audio.mp4", ["-f", "lavfi", "-i", "testsrc=duration=4:size=720x1280:rate=30", "-f", "lavfi", "-i", "sine=frequency=500:duration=2.5", "-c:a", "aac"]);
+    const sync = await assembleClips({ inputs: [shortAudio, loud], outputPath: path.join(dir, "sync.mp4"), transition: "CUT" });
+    const streams = JSON.parse(spawnSync(process.env.FFPROBE_PATH || "ffprobe", ["-v", "error", "-show_entries", "stream=codec_type,duration", "-of", "json", sync.outputPath], { encoding: "utf8" }).stdout).streams;
+    const vDur = parseFloat(streams.find((s: any) => s.codec_type === "video").duration);
+    const aDur = parseFloat(streams.find((s: any) => s.codec_type === "audio").duration);
+    assert(Math.abs(vDur - 8) < 0.2 && Math.abs(aDur - vDur) < 0.1, `audio padded to the picture: video ${vDur.toFixed(2)}s, audio ${aDur.toFixed(2)}s`);
 
     const png = await extractLastFrame(a, path.join(dir, "last.png"));
     assert(fs.existsSync(png) && fs.statSync(png).size > 1024, "last frame extracted as a non-empty PNG");

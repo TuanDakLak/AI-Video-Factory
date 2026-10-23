@@ -19,7 +19,12 @@ export interface AssembleOptions {
   height?: number;
   fps?: number;
   crossfadeSeconds?: number;
+  /** level every clip's audio to TARGET_LUFS (default on; AUDIO_NORMALIZE=false disables) */
+  normalizeAudio?: boolean;
 }
+
+/** Loudness the platforms normalise to (TikTok / YouTube / Reels play around -14 LUFS). */
+export const TARGET_LUFS = -14;
 
 export interface AssembleResult {
   outputPath: string;
@@ -91,13 +96,27 @@ export async function assembleClips(opts: AssembleOptions): Promise<AssembleResu
   if (n === 1) transition = "CUT";
   if (transition === "CROSSFADE" && infos.some((i) => i.duration < d * 2 + 0.2)) transition = "CUT";
 
+  const normalize = opts.normalizeAudio ?? process.env.AUDIO_NORMALIZE !== "false";
   const f: string[] = [];
   for (let i = 0; i < n; i++) {
+    const dur = infos[i].duration.toFixed(3);
     f.push(
       `[${i}:v]scale=${W}:${H}:force_original_aspect_ratio=decrease,pad=${W}:${H}:(ow-iw)/2:(oh-ih)/2:color=black,setsar=1,fps=${fps},format=yuv420p,settb=AVTB[v${i}]`
     );
     if (infos[i].hasAudio) {
-      f.push(`[${i}:a]aresample=48000,aformat=sample_fmts=fltp:channel_layouts=stereo,asetpts=PTS-STARTPTS[a${i}]`);
+      const chain = [
+        "aresample=48000",
+        "aformat=sample_fmts=fltp:channel_layouts=stereo",
+        "asetpts=PTS-STARTPTS",
+        // Veo clips differ in loudness: bring each to the social-media level (EBU R128, -14 LUFS, true peak -1.5 dBTP)
+        ...(normalize ? [`loudnorm=I=${TARGET_LUFS}:TP=-1.5:LRA=11`, "aresample=48000"] : []),
+        // audio exactly as long as the picture: a shorter track would shift every following clip out of sync
+        `apad=whole_dur=${dur}`,
+        `atrim=duration=${dur}`,
+        // tiny fades at hard cuts remove the click/pop where two clips meet (inaudible as silence)
+        ...(transition === "CUT" && n > 1 ? ["afade=t=in:d=0.03", `afade=t=out:st=${Math.max(0, infos[i].duration - 0.08).toFixed(3)}:d=0.08`] : []),
+      ];
+      f.push(`[${i}:a]${chain.join(",")}[a${i}]`);
     } else {
       f.push(`anullsrc=r=48000:cl=stereo,atrim=duration=${infos[i].duration.toFixed(3)},asetpts=PTS-STARTPTS[a${i}]`);
     }
