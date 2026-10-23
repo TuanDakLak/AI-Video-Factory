@@ -42,6 +42,7 @@ export async function POST(req: NextRequest) {
         profileDir: `u-${user.id.slice(-8)}-${randomBytes(6).toString("hex")}`,
         name: validated.data.name,
         label: validated.data.label,
+        email: validated.data.email ?? null,
         status: "NOT_CONNECTED",
         notes: validated.data.notes || null,
       },

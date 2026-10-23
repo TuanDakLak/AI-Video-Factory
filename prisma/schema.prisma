@@ -97,6 +97,7 @@ model GoogleAccount {
   name                 String // "Google Pro A", "Google Pro B"
   label                String // "Tài khoản 1 (Chính)"
   profileDir           String              @unique // Relative folder in browser-profiles/ e.g. "account-a"
+  email                String? // Google email of this Flow account (pre-filled on the Google sign-in page when connecting)
   status               GoogleAccountStatus @default(NOT_CONNECTED)
   lockStatus           AccountLockStatus   @default(AVAILABLE)
   lastKnownFlowCredits Int? // Last read visible Flow credits from UI
@@ -215,7 +216,7 @@ model User {
   id             String          @id @default(cuid())
   email          String          @unique // stored lower-cased
   name           String
-  passwordHash   String // argon2id (PHC string)
+  passwordHash   String? // argon2id (PHC string); null for accounts that only sign in with Google
   role           UserRole        @default(USER)
   disabled       Boolean         @default(false)
   createdAt      DateTime        @default(now())
@@ -224,6 +225,7 @@ model User {
   projects       Project[]
   googleAccounts GoogleAccount[]
   refreshTokens  RefreshToken[]
+  oauthAccounts  OAuthAccount[]
 }
 
 // Opaque refresh tokens, rotated on every use. All tokens issued from one login share a familyId; presenting an already
@@ -244,5 +246,20 @@ model RefreshToken {
   ip              String?
 
   @@index([familyId])
+  @@index([userId])
+}
+
+// External identities linked to a user (Google sign-in). providerAccountId = the provider's stable subject id ("sub").
+model OAuthAccount {
+  id                String   @id @default(cuid())
+  userId            String
+  user              User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  provider          String // "google"
+  providerAccountId String
+  email             String?
+  createdAt         DateTime @default(now())
+  lastUsedAt        DateTime @default(now())
+
+  @@unique([provider, providerAccountId])
   @@index([userId])
 }

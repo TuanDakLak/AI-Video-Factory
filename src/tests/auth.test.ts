@@ -5,6 +5,7 @@ import { hashPassword, verifyPassword } from "../lib/auth/password";
 import { createSession, hashToken, isSessionActive, revokeAllSessions, revokeFamily, rotateRefreshToken } from "../lib/auth/tokens";
 import { ownsGoogleAccount, ownsProject, ownsSequence } from "../lib/auth/ownership";
 import { SignJWT } from "jose";
+import { GoogleAlreadyLinkedError, LinkRequiredError, linkGoogleToUser, registerSchema, signInWithGoogle } from "../lib/auth/users";
 
 /** Auth tests. Needs Postgres (DATABASE_URL) and AUTH_SECRET; creates and removes its own users. */
 function assert(cond: unknown, msg: string) {
@@ -92,6 +93,48 @@ async function run() {
     assert(!(await ownsProject(b.id, pa.id)), "another user cannot access the project");
     assert(!(await ownsGoogleAccount(b.id, ga.id)), "another user cannot use the Google account (session + credits)");
     assert(!(await ownsSequence(b.id, seq.id)) && (await ownsSequence(a.id, seq.id)), "sequences follow their project's owner");
+
+    console.log("\n--- 6. Sign-up form rules ---");
+    const base = { email: `x-${tag}@test.local`, name: "X", password: "Str0ng-pass!" };
+    assert(registerSchema.safeParse({ ...base, confirmPassword: "Str0ng-pass!" }).success, "matching confirmation accepted");
+    assert(!registerSchema.safeParse({ ...base, confirmPassword: "different" }).success, "mismatching confirmation refused");
+    assert(!registerSchema.safeParse({ ...base, password: "short", confirmPassword: "short" }).success, "password shorter than 10 refused");
+
+    console.log("\n--- 7. Google sign-in (verified profile, no network) ---");
+    // a, b have passwords: Google must NOT silently take over a password account with the same email
+    let refused = false;
+    try {
+      await signInWithGoogle({ sub: `sub-a-${tag}`, email: `a-${tag}@test.local`, name: "A" });
+    } catch (e) {
+      refused = e instanceof LinkRequiredError;
+    }
+    assert(refused, "same email as a password account -> explicit linking required (no pre-account takeover)");
+    await linkGoogleToUser(a.id, { sub: `sub-a-${tag}`, email: `a-${tag}@test.local`, name: "A" });
+    const again = await signInWithGoogle({ sub: `sub-a-${tag}`, email: `a-${tag}@test.local`, name: "A" });
+    assert(again?.id === a.id && !again.created, "after linking, Google signs in to the same user");
+    const flow = await prisma.googleAccount.findFirst({ where: { ownerId: a.id, email: `a-${tag}@test.local` } });
+    assert(flow?.status === "NOT_CONNECTED" && /^u-[A-Za-z0-9]+-[0-9a-f]{12}$/.test(flow.profileDir), "Flow account pre-created for the Google email (own browser profile, still to connect)");
+    let taken = false;
+    try {
+      await linkGoogleToUser(b.id, { sub: `sub-a-${tag}`, email: `a-${tag}@test.local`, name: "A" });
+    } catch (e) {
+      taken = e instanceof GoogleAlreadyLinkedError;
+    }
+    assert(taken, "one Google account cannot be linked to two users");
+
+    // new user through Google: skipped if this database still has unowned legacy data and no user
+    // (the first account would adopt it, and the cleanup below would delete it with the test user)
+    const legacy = (await prisma.user.count()) === 0 && (await prisma.project.count({ where: { ownerId: null } })) > 0;
+    if (!legacy) {
+      const prev = process.env.ALLOW_SIGNUP;
+      process.env.ALLOW_SIGNUP = "true";
+      const g = await signInWithGoogle({ sub: `sub-g-${tag}`, email: `g-${tag}@test.local`, name: "G" });
+      process.env.ALLOW_SIGNUP = prev;
+      if (g) created.push(g.id);
+      const gu = g && (await prisma.user.findUnique({ where: { id: g.id } }));
+      assert(g?.created && gu?.passwordHash === null, "new Google user created without a password");
+      assert(await prisma.googleAccount.count({ where: { ownerId: g!.id } }) === 1, "new Google user starts with exactly its own Flow account, no one else's data");
+    }
   } finally {
     if (created.length) await prisma.user.deleteMany({ where: { id: { in: created } } }); // cascades projects, accounts, tokens
   }

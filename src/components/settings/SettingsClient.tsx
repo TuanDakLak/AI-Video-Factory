@@ -21,6 +21,7 @@ interface GoogleAccountItem {
   name: string;
   label: string;
   profileDir: string;
+  email?: string | null;
   status: "NOT_CONNECTED" | "CONNECTING" | "CONNECTED" | "EXPIRED" | "ERROR" | "DISABLED";
   lockStatus: "AVAILABLE" | "IN_USE" | "DISABLED";
   lastKnownFlowCredits?: number | null;
@@ -46,7 +47,7 @@ export default function SettingsClient({
   // Form states
   const [name, setName] = useState("");
   const [label, setLabel] = useState("");
-  const [profileDir, setProfileDir] = useState("");
+  const [gEmail, setGEmail] = useState("");
   const [notes, setNotes] = useState("");
   const [isSubmitting, setIsSubmitting] = useState(false);
 
@@ -173,18 +174,17 @@ export default function SettingsClient({
         body: JSON.stringify({
           name: name.trim(),
           label: label.trim(),
-          profileDir: profileDir.trim() || `account-${Date.now()}`,
+          email: gEmail.trim() || undefined,
           notes: notes.trim() || undefined,
-          status: "NOT_CONNECTED",
         }),
       });
 
-      if (!res.ok) throw new Error("Không thể thêm tài khoản.");
+      if (!res.ok) throw new Error((await res.json().catch(() => ({}))).error || "Không thể thêm tài khoản.");
       const created = await res.json();
       setAccounts((prev) => [...prev, created]);
       setName("");
       setLabel("");
-      setProfileDir("");
+      setGEmail("");
       setNotes("");
       setShowAddForm(false);
       success(`Đã thêm "${created.name}". Hãy nhấn "Kết Nối" để đăng nhập.`);
@@ -365,13 +365,14 @@ export default function SettingsClient({
                 />
               </div>
               <div className="space-y-1">
-                <label className="text-xs font-medium text-slate-700">Thư mục Profile</label>
+                <label className="text-xs font-medium text-slate-700">Email Google</label>
                 <input
-                  type="text"
-                  value={profileDir}
-                  onChange={(e) => setProfileDir(e.target.value)}
-                  placeholder="VD: account-c (tự sinh nếu trống)"
-                  className="w-full px-3.5 py-2 rounded-xl border border-slate-200 text-xs text-slate-800 bg-white font-mono"
+                  type="email"
+                  value={gEmail}
+                  onChange={(e) => setGEmail(e.target.value)}
+                  placeholder="VD: ten@gmail.com (điền sẵn khi kết nối)"
+                  maxLength={254}
+                  className="w-full px-3.5 py-2 rounded-xl border border-slate-200 text-xs text-slate-800 bg-white"
                 />
               </div>
             </div>
@@ -423,6 +424,7 @@ export default function SettingsClient({
                       <span>{acc.name}</span>
                     </h4>
                     <p className="text-xs text-slate-500 mt-0.5">{acc.label}</p>
+                    {acc.email && acc.email !== acc.name && <p className="text-[11px] text-slate-400 mt-0.5">{acc.email}</p>}
                   </div>
                   {getStatusBadge(acc.status, acc.lockStatus)}
                 </div>

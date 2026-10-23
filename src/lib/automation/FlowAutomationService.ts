@@ -168,14 +168,20 @@ export class FlowAutomationService {
       const flowUrl = this.getBaseFlowUrl();
       console.log(`[FlowAutomation] Opening Google Flow for manual login: ${flowUrl}`);
       await page.goto(flowUrl, { waitUntil: "domcontentloaded", timeout: 45000 });
+      // Not signed in yet and we know which Google account this is: open Google's sign-in with the email pre-filled
+      // (the user still types the password / 2FA themselves; it never passes through this app)
+      if (account.email && !(await this.findFirstSelector(page, FlowSelectors.auth.userAvatar, 4000))) {
+        const signIn = `https://accounts.google.com/AccountChooser?Email=${encodeURIComponent(account.email)}&continue=${encodeURIComponent(flowUrl)}`;
+        await page.goto(signIn, { waitUntil: "domcontentloaded", timeout: 45000 }).catch(() => {});
+      }
 
       // Check if user is already signed in or needs manual login
       console.log("[FlowAutomation] Waiting for user authentication check...");
 
-      // Wait up to 90 seconds for user to sign in if needed
+      // Wait up to 3 minutes for the user to sign in (password + 2-step verification take time)
       let isAuthenticated = false;
       const startTime = Date.now();
-      const maxWait = 90000;
+      const maxWait = 180000;
 
       while (Date.now() - startTime < maxWait) {
         // Check for avatar or auth indicators
@@ -190,7 +196,8 @@ export class FlowAutomationService {
           1000
         );
 
-        if (avatarSelector && !signInSelector) {
+        // back on Flow (Google's own sign-in pages also show avatars)
+        if (avatarSelector && !signInSelector && !this.isSignedOutUrl(page.url())) {
           isAuthenticated = true;
           break;
         }

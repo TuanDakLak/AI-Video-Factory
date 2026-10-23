@@ -160,6 +160,8 @@ export const updateSceneSchema = z.object({
 export const createGoogleAccountSchema = z.object({
   name: z.string().trim().min(1, "Tên tài khoản không được để trống").max(80),
   label: z.string().trim().min(1, "Nhãn tài khoản không được để trống").max(120),
+  /** the Google login of this Flow account: pre-filled on the sign-in page when connecting */
+  email: z.string().trim().toLowerCase().email("Email Google không hợp lệ").max(254).optional(),
   notes: z.string().max(500).optional(),
 });
 // profileDir (which browser profile = which Google session) and status are server-controlled, never client input

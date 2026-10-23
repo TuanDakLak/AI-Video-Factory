@@ -10,7 +10,7 @@ import { verifyAccessToken } from "@/lib/auth/jwt";
 const PUBLIC_PAGES = new Set(["/login", "/register"]);
 // these endpoints authenticate on their own (login/refresh/logout must work without a valid access token;
 // automation uses an API key for unattended callers)
-const PUBLIC_API = ["/api/auth/login", "/api/auth/register", "/api/auth/refresh", "/api/auth/logout", "/api/automation/"];
+const PUBLIC_API = ["/api/auth/login", "/api/auth/register", "/api/auth/refresh", "/api/auth/logout", "/api/auth/google/", "/api/automation/"];
 
 const UNSAFE = new Set(["POST", "PUT", "PATCH", "DELETE"]);
 
