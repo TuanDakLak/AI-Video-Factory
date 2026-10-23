@@ -4,6 +4,7 @@ import { notFound } from "next/navigation";
 import { prisma } from "@/lib/db";
 import { ArrowLeft } from "lucide-react";
 import VideoDetailViewClient from "@/components/videos/VideoDetailViewClient";
+import { PublishPanel } from "@/components/videos/PublishPanel";
 import { requirePageUser } from "@/lib/auth/session";
 import { videoAssetsOf } from "@/lib/auth/ownership";
 
@@ -50,6 +51,7 @@ export default async function VideoDetailPage({
       </Link>
 
       <VideoDetailViewClient video={video as any} />
+      <PublishPanel videoId={video.id} />
     </div>
   );
 }

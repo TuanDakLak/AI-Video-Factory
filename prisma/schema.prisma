@@ -169,6 +169,7 @@ model VideoAsset {
   sequenceId       String?          @unique // set only on the final stitched video of a Sequence
   sequence         Sequence?        @relation("SequenceFinal", fields: [sequenceId], references: [id], onDelete: SetNull)
   createdAt        DateTime         @default(now())
+  publications     Publication[]
 }
 
 enum SequenceStatus {
@@ -230,6 +231,7 @@ model User {
   refreshTokens  RefreshToken[]
   oauthAccounts  OAuthAccount[]
   channels       Channel[]
+  socialAccounts SocialAccount[]
 }
 
 // Opaque refresh tokens, rotated on every use. All tokens issued from one login share a familyId; presenting an already
@@ -296,6 +298,9 @@ model Channel {
   googleAccountId   String? // preferred Google account (else any connected one of the owner)
   lastResearchAt    DateTime? // last automatic topic research run
   lastResearchNote  String?   @db.Text // outcome of that run (shown in the UI)
+  autoPublish       Boolean   @default(false) // post every finished video of this channel automatically
+  publishTargets    String    @default("[]") // JSON SocialAccount ids to post to
+  tiktokPrivacy     String    @default("SELF_ONLY") // TikTok privacy_level (unaudited apps can only post SELF_ONLY)
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -341,4 +346,51 @@ model Topic {
 
   @@index([channelId, status])
   @@index([channelId, normalizedTitle])
+}
+
+// A social account videos are published to: a TikTok account or a Facebook Page. Tokens are AES-256-GCM encrypted
+// (lib/publish/crypto.ts): a database leak does not leak usable tokens.
+model SocialAccount {
+  id               String        @id @default(cuid())
+  ownerId          String
+  owner            User          @relation(fields: [ownerId], references: [id], onDelete: Cascade)
+  platform         String // "TIKTOK" | "FACEBOOK_PAGE"
+  externalId       String // TikTok open_id / Facebook Page id
+  displayName      String
+  accessToken      String        @db.Text // encrypted
+  refreshToken     String?       @db.Text // encrypted (TikTok)
+  tokenExpiresAt   DateTime?
+  refreshExpiresAt DateTime?
+  scopes           String        @default("")
+  status           String        @default("CONNECTED") // CONNECTED | EXPIRED | ERROR
+  lastError        String?       @db.Text
+  createdAt        DateTime      @default(now())
+  updatedAt        DateTime      @updatedAt
+  publications     Publication[]
+
+  @@unique([ownerId, platform, externalId])
+  @@index([ownerId])
+}
+
+// One video posted to one social account. Unique per (video, account): a video is never posted twice to the same place.
+model Publication {
+  id              String        @id @default(cuid())
+  videoAssetId    String
+  videoAsset      VideoAsset    @relation(fields: [videoAssetId], references: [id], onDelete: Cascade)
+  socialAccountId String
+  socialAccount   SocialAccount @relation(fields: [socialAccountId], references: [id], onDelete: Cascade)
+  platform        String
+  status          String        @default("QUEUED") // QUEUED | UPLOADING | PROCESSING | PUBLISHED | FAILED
+  privacy         String? // TikTok privacy_level requested (falls back to SELF_ONLY when not offered)
+  caption         String        @db.Text
+  remoteId        String? // TikTok publish_id / Facebook video id
+  remoteUrl       String?
+  errorMessage    String?       @db.Text
+  attempts        Int           @default(0)
+  createdAt       DateTime      @default(now())
+  updatedAt       DateTime      @updatedAt
+  publishedAt     DateTime?
+
+  @@unique([videoAssetId, socialAccountId])
+  @@index([status])
 }

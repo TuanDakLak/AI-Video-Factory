@@ -32,6 +32,10 @@ export const presetInputSchema = z.object({
   reviewHours: z.coerce.number().int().min(0).max(168).default(12),
   dailyCreditBudget: z.coerce.number().int().min(0).max(5000).default(200),
   googleAccountId: z.string().nullable().optional(),
+  // publishing
+  autoPublish: z.boolean().default(false),
+  publishTargets: z.array(z.string()).max(10).default([]),
+  tiktokPrivacy: z.enum(["PUBLIC_TO_EVERYONE", "MUTUAL_FOLLOW_FRIENDS", "FOLLOWER_OF_CREATOR", "SELF_ONLY"]).default("SELF_ONLY"),
 });
 export type PresetInput = z.infer<typeof presetInputSchema>;
 
@@ -77,15 +81,19 @@ export function toPreset(c: Channel): ChannelPreset {
     dailyCreditBudget: c.dailyCreditBudget,
     googleAccountId: c.googleAccountId,
     projectId: c.projectId,
+    autoPublish: c.autoPublish,
+    publishTargets: arr<string>(c.publishTargets, []),
+    tiktokPrivacy: c.tiktokPrivacy as PresetInput["tiktokPrivacy"],
     createdAt: c.createdAt.toISOString(),
     updatedAt: c.updatedAt.toISOString(),
   };
 }
 
 function toData(input: Partial<PresetInput> & { referenceImageKeys?: string[] }) {
-  const { hashtags, genres, durations, referenceImageKeys, ...rest } = input;
+  const { hashtags, genres, durations, referenceImageKeys, publishTargets, ...rest } = input;
   return {
     ...rest,
+    ...(publishTargets !== undefined ? { publishTargets: JSON.stringify([...new Set(publishTargets)]) } : {}),
     ...(hashtags !== undefined ? { hashtags: JSON.stringify(hashtags) } : {}),
     ...(genres !== undefined ? { genres: JSON.stringify(genres) } : {}),
     ...(durations !== undefined ? { durations: JSON.stringify([...new Set(durations)].sort((a, b) => a - b)) } : {}),
@@ -93,11 +101,16 @@ function toData(input: Partial<PresetInput> & { referenceImageKeys?: string[] })
   };
 }
 
-/** The preferred Google account must be one of the owner's. */
-async function assertAccount(ownerId: string, googleAccountId: string | null | undefined) {
-  if (!googleAccountId) return;
-  const ok = await prisma.googleAccount.findFirst({ where: { id: googleAccountId, ownerId }, select: { id: true } });
-  if (!ok) throw new Error("Không tìm thấy tài khoản Google đã chọn.");
+/** The preferred Google account and the publish targets must be the owner's. */
+async function assertAccount(ownerId: string, googleAccountId: string | null | undefined, publishTargets?: string[]) {
+  if (googleAccountId) {
+    const ok = await prisma.googleAccount.findFirst({ where: { id: googleAccountId, ownerId }, select: { id: true } });
+    if (!ok) throw new Error("Không tìm thấy tài khoản Google đã chọn.");
+  }
+  if (publishTargets?.length) {
+    const n = await prisma.socialAccount.count({ where: { id: { in: [...new Set(publishTargets)] }, ownerId } });
+    if (n !== new Set(publishTargets).size) throw new Error("Không tìm thấy tài khoản mạng xã hội đã chọn.");
+  }
 }
 
 export async function listPresets(ownerId: string): Promise<ChannelPreset[]> {
@@ -111,7 +124,7 @@ export async function getPreset(id: string, ownerId: string): Promise<ChannelPre
 }
 
 export async function createPreset(input: PresetInput, ownerId: string): Promise<ChannelPreset> {
-  await assertAccount(ownerId, input.googleAccountId);
+  await assertAccount(ownerId, input.googleAccountId, input.publishTargets);
   const c = await prisma.channel.create({ data: { ...toData(input), ownerId } as any });
   return toPreset(c);
 }
@@ -123,7 +136,7 @@ export async function updatePreset(
 ): Promise<ChannelPreset | null> {
   const existing = await prisma.channel.findFirst({ where: { id, ownerId }, select: { id: true } });
   if (!existing) return null;
-  await assertAccount(ownerId, patch.googleAccountId);
+  await assertAccount(ownerId, patch.googleAccountId, patch.publishTargets);
   const c = await prisma.channel.update({ where: { id }, data: toData(patch) as any });
   return toPreset(c);
 }

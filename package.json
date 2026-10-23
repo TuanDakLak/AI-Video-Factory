@@ -15,14 +15,15 @@
     "prisma:studio": "prisma studio",
     "seed": "tsx prisma/seed.ts",
     "worker": "tsx src/worker/index.ts",
-    "test": "tsx src/tests/validations.test.ts && tsx src/tests/sequence.test.ts && tsx src/tests/auth.test.ts && tsx src/tests/automation.test.ts",
+    "test": "tsx src/tests/validations.test.ts && tsx src/tests/sequence.test.ts && tsx src/tests/auth.test.ts && tsx src/tests/automation.test.ts && tsx src/tests/publish.test.ts",
     "test:flow": "tsx src/scripts/test-flow.ts",
     "flow:health": "tsx src/scripts/flow-health.ts",
     "flow:attach-test": "tsx src/scripts/flow-attach-test.ts",
     "test:sequence": "tsx src/tests/sequence.test.ts",
     "test:auth": "tsx src/tests/auth.test.ts",
     "user:create": "tsx src/scripts/create-user.ts",
-    "test:automation": "tsx src/tests/automation.test.ts"
+    "test:automation": "tsx src/tests/automation.test.ts",
+    "test:publish": "tsx src/tests/publish.test.ts"
   },
   "dependencies": {
     "@google/generative-ai": "^0.24.0",

@@ -76,7 +76,7 @@ TikTok, Facebook Reels: OAuth từng kênh, gói đăng bài, nhãn nội dung A
 | P2 | Tự nghiên cứu chủ đề + chống trùng (B2) | xong |
 | P3 | Dọn job ma, tự khôi phục, health-check định kỳ, chọn tài khoản theo credit (C1–C4) | xong |
 | P4 | Âm thanh: chuẩn hoá loudness, nối mượt (A5) | xong |
-| P5 | Đăng TikTok / Facebook Reels (E) | |
+| P5 | Đăng TikTok / Facebook Reels (E) | xong (chờ app TikTok/Facebook thật để chạy thử) |
 
 ## 5. Ghi chú khi làm P1
 
@@ -129,3 +129,23 @@ Gemini quá tải (503/429): thử lại sau 2s, 6s rồi chuyển `gemini-2.5-f
 - Fade 30 ms / 80 ms ở mỗi chỗ cắt thẳng: hết tiếng "bụp" khi nối.
 - Tắt bằng `AUDIO_NORMALIZE=false`.
 - Chưa làm: nhạc nền (cần thư viện nhạc có bản quyền), phụ đề.
+
+## 10. P5: đăng bài
+
+```
+Chủ đề READY (kênh bật "Tự đăng") ─► Publication (QUEUED) mỗi tài khoản đích ─► worker tải lên (1 bài/lượt)
+   ─► PROCESSING ─► hỏi trạng thái ─► PUBLISHED (link bài) / FAILED (+ webhook)
+Trang video: nút "Đăng" thủ công lên tài khoản bất kỳ đã kết nối.
+```
+
+| | TikTok | Facebook Page Reels |
+|---|---|---|
+| API | Content Posting API, Direct Post, FILE_UPLOAD (chunk 5–64 MB) | Graph `/{page}/video_reels`: start → rupload → finish |
+| Kết nối | OAuth Login Kit v2; token 24h tự refresh (refresh token 365 ngày) | OAuth Facebook Login → token Page (không hết hạn) |
+| Giới hạn | App chưa audit: **chỉ đăng riêng tư**; redirect URI phải HTTPS | Video 3–90s, 9:16, ≥ 540x960; chế độ dev chỉ đăng Page mình là admin |
+| Nhãn AI | `is_aigc: true` luôn bật | (Meta tự gắn nhãn) |
+
+- Token mã hoá AES-256-GCM (`TOKEN_ENCRYPTION_KEY`), API không bao giờ trả token ra ngoài.
+- 1 video × 1 tài khoản = tối đa 1 bài (ràng buộc unique): không bao giờ đăng trùng.
+- Lỗi tạm thời (5xx, 429, mạng) thử lại tối đa 3 lần; token bị thu hồi → tài khoản "cần kết nối lại".
+- Kiểm tra luật nền tảng trước khi tải lên (độ dài, tỉ lệ, độ phân giải, giới hạn của từng tài khoản TikTok).

@@ -22,6 +22,16 @@ interface Channel {
   reviewHours: number;
   dailyCreditBudget: number;
   googleAccountId: string | null;
+  autoPublish: boolean;
+  publishTargets: string[];
+  tiktokPrivacy: string;
+}
+
+interface Social {
+  id: string;
+  platform: string;
+  displayName: string;
+  status: string;
 }
 
 interface Account {
@@ -46,6 +56,9 @@ const EMPTY: Form = {
   reviewHours: 12,
   dailyCreditBudget: 200,
   googleAccountId: null,
+  autoPublish: false,
+  publishTargets: [],
+  tiktokPrivacy: "SELF_ONLY",
 };
 
 const LANGS = [
@@ -67,7 +80,7 @@ function toForm(c: Channel): Form {
   return { ...rest, hashtags: c.hashtags.join(" ") };
 }
 
-function ChannelForm(props: { initial: Form; accounts: Account[]; submitLabel: string; onSubmit: (f: Form) => Promise<void>; onCancel?: () => void }) {
+function ChannelForm(props: { initial: Form; accounts: Account[]; socials: Social[]; submitLabel: string; onSubmit: (f: Form) => Promise<void>; onCancel?: () => void }) {
   const [f, setF] = useState<Form>(props.initial);
   const [busy, setBusy] = useState(false);
   const set = <K extends keyof Form>(k: K, v: Form[K]) => setF((s) => ({ ...s, [k]: v }));
@@ -166,6 +179,38 @@ function ChannelForm(props: { initial: Form; accounts: Account[]; submitLabel: s
         </p>
       </div>
 
+      <div className="space-y-3 border-t border-slate-100 pt-4">
+        <label className="flex items-center justify-between gap-3">
+          <span>
+            <span className="text-[11px] font-semibold text-slate-400 uppercase tracking-wider">Tự đăng bài</span>
+            <span className="block text-[11px] text-slate-500">Video làm xong được đăng lên các tài khoản chọn bên dưới (kèm caption, hashtag, nhãn nội dung AI).</span>
+          </span>
+          <input type="checkbox" className="w-5 h-5 accent-emerald-600" checked={f.autoPublish} onChange={(e) => set("autoPublish", e.target.checked)} />
+        </label>
+        {props.socials.length === 0 ? (
+          <p className="text-[11px] text-slate-500">Chưa kết nối tài khoản TikTok / Facebook nào (Cài đặt → Mạng xã hội).</p>
+        ) : (
+          <div className="flex flex-wrap gap-1.5">
+            {props.socials.map((s) => (
+              <button type="button" key={s.id} onClick={() => set("publishTargets", toggle(f.publishTargets, s.id))} className={chip(f.publishTargets.includes(s.id))}>
+                {s.platform === "TIKTOK" ? "TikTok" : "Facebook"}: {s.displayName}{s.status !== "CONNECTED" ? " (cần kết nối lại)" : ""}
+              </button>
+            ))}
+          </div>
+        )}
+        {props.socials.some((s) => s.platform === "TIKTOK" && f.publishTargets.includes(s.id)) && (
+          <label className="space-y-1 block">
+            <span className="text-xs font-medium text-slate-700">Chế độ hiển thị trên TikTok</span>
+            <select className={inputCls} value={f.tiktokPrivacy} onChange={(e) => set("tiktokPrivacy", e.target.value)}>
+              <option value="SELF_ONLY">Chỉ mình tôi (ứng dụng chưa được TikTok duyệt chỉ đăng được chế độ này)</option>
+              <option value="PUBLIC_TO_EVERYONE">Công khai</option>
+              <option value="FOLLOWER_OF_CREATOR">Người theo dõi</option>
+              <option value="MUTUAL_FOLLOW_FRIENDS">Bạn bè</option>
+            </select>
+          </label>
+        )}
+      </div>
+
       <div className="flex items-center gap-2">
         <button disabled={busy || !f.name.trim() || f.genres.length === 0} className="inline-flex items-center gap-2 bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-semibold px-4 py-2.5 rounded-xl disabled:opacity-50">
           {busy && <Loader2 className="w-3.5 h-3.5 animate-spin" />}
@@ -183,13 +228,19 @@ export default function PresetsClient() {
   const { success, error } = useToast();
   const [channels, setChannels] = useState<Channel[]>([]);
   const [accounts, setAccounts] = useState<Account[]>([]);
+  const [socials, setSocials] = useState<Social[]>([]);
   const [creating, setCreating] = useState(false);
   const [editing, setEditing] = useState<string | null>(null);
 
   const load = useCallback(async () => {
-    const [c, a] = await Promise.all([fetch("/api/presets", { cache: "no-store" }), fetch("/api/google-accounts", { cache: "no-store" })]);
+    const [c, a, s] = await Promise.all([
+      fetch("/api/presets", { cache: "no-store" }),
+      fetch("/api/google-accounts", { cache: "no-store" }),
+      fetch("/api/social", { cache: "no-store" }),
+    ]);
     if (c.ok) setChannels(await c.json());
     if (a.ok) setAccounts(await a.json());
+    if (s.ok) setSocials((await s.json()).accounts);
   }, []);
   useEffect(() => {
     load();
@@ -237,7 +288,7 @@ export default function PresetsClient() {
       {creating ? (
         <div className="bg-white border border-slate-200/90 rounded-3xl p-6 shadow-sm">
           <h2 className="text-sm font-bold text-slate-800 mb-4">Kênh mới</h2>
-          <ChannelForm initial={EMPTY} accounts={accounts} submitLabel="Tạo kênh" onSubmit={create} onCancel={() => setCreating(false)} />
+          <ChannelForm initial={EMPTY} accounts={accounts} socials={socials} submitLabel="Tạo kênh" onSubmit={create} onCancel={() => setCreating(false)} />
         </div>
       ) : (
         <button type="button" onClick={() => setCreating(true)} className="inline-flex items-center gap-2 bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-semibold px-4 py-2.5 rounded-xl">
@@ -254,7 +305,7 @@ export default function PresetsClient() {
       {channels.map((c) => (
         <div key={c.id} className="bg-white border border-slate-200/90 rounded-3xl p-6 shadow-sm space-y-3">
           {editing === c.id ? (
-            <ChannelForm initial={toForm(c)} accounts={accounts} submitLabel="Lưu" onSubmit={(f) => save(c.id, f)} onCancel={() => setEditing(null)} />
+            <ChannelForm initial={toForm(c)} accounts={accounts} socials={socials} submitLabel="Lưu" onSubmit={(f) => save(c.id, f)} onCancel={() => setEditing(null)} />
           ) : (
             <>
               <div className="flex items-start justify-between gap-3">

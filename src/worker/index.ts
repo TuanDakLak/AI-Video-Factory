@@ -9,6 +9,7 @@ import { VeoApiService } from "../lib/automation/veo-api";
 import { notifyWebhook } from "../lib/automation/notify";
 import { automationTick } from "../lib/automation/scheduler";
 import { accountDueForHealthCheck, reconcileOrphans, releaseAllLocks } from "../lib/automation/reliability";
+import { publishTick } from "../lib/publish/publisher";
 
 console.log("==================================================");
 console.log("🚀 Google Flow Automation Worker (Phase 3)");
@@ -159,6 +160,9 @@ if (tickSec > 0) {
       }
       // 3. research, inbox, production
       const r = await automationTick();
+      // 4. publishing: queue finished videos of auto-publish channels, upload one, poll the rest
+      const pub = await publishTick();
+      if (pub.queued || pub.started.length) console.log(`[Publish] queued ${pub.queued}; ${pub.started.join(" | ") || "nothing uploaded"}; polled ${pub.polled}`);
       if (r.research) console.log(`[Research] ${r.research}`);
       if (r.autoApproved || r.started.length || r.skipped.length) {
         console.log(`[Scheduler] auto-approved ${r.autoApproved}; started: ${r.started.join(" | ") || "-"}; skipped: ${r.skipped.join(" | ") || "-"}`);

@@ -2,6 +2,7 @@ import React, { Suspense } from "react";
 import { prisma } from "@/lib/db";
 import SettingsClient from "@/components/settings/SettingsClient";
 import { AccountSecurity } from "@/components/settings/AccountSecurity";
+import { SocialAccounts } from "@/components/settings/SocialAccounts";
 import { requirePageUser } from "@/lib/auth/session";
 import { googleAccountsOf } from "@/lib/auth/ownership";
 import { googleEnabled } from "@/lib/auth/google";
@@ -45,6 +46,10 @@ export default async function SettingsPage() {
       </Suspense>
 
       <SettingsClient initialAccounts={JSON.parse(JSON.stringify(googleAccounts))} />
+
+      <Suspense>
+        <SocialAccounts />
+      </Suspense>
     </div>
   );
 }
