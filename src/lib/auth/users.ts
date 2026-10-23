@@ -1,7 +1,6 @@
 import { randomBytes } from "crypto";
 import { z } from "zod";
 import { prisma } from "@/lib/db";
-import { claimUnownedPresets } from "@/lib/presets";
 import { PASSWORD_MAX, PASSWORD_MIN, hashPassword, verifyPassword } from "./password";
 import type { GoogleProfile } from "./google";
 
@@ -72,7 +71,6 @@ async function createUser(
     }
     return { ...created, isFirst };
   });
-  if (user.isFirst) claimUnownedPresets(user.id);
   return user;
 }
 

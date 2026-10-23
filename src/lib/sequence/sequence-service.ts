@@ -33,7 +33,12 @@ export class SequenceService {
    * Plan scenes with AI (or fallback) and create Sequence + one DRAFT Generation per scene. Does NOT start rendering.
    * ownerId: the project, content, preset and Google account must all belong to this user.
    */
-  static async create(input: CreateSequenceInput, ownerId: string) {
+  static async create(
+    input: CreateSequenceInput,
+    ownerId: string,
+    /** publishing metadata already written (e.g. by the script writer for an automated topic) */
+    meta: { caption?: string; tags?: string[] } = {}
+  ) {
     const project = await prisma.project.findFirst({ where: { id: input.projectId, ownerId } });
     if (!project) throw new Error("Không tìm thấy dự án tương ứng.");
     if (input.googleAccountId && !(await prisma.googleAccount.findFirst({ where: { id: input.googleAccountId, ownerId }, select: { id: true } }))) {
@@ -47,7 +52,7 @@ export class SequenceService {
       throw new Error("Kịch bản đã chọn không thuộc dự án này.");
     }
 
-    const preset = input.presetId ? getPreset(input.presetId, ownerId) : null;
+    const preset = input.presetId ? await getPreset(input.presetId, ownerId) : null;
     if (input.presetId && !preset) throw new Error("Không tìm thấy preset kênh đã chọn.");
 
     const brief =
@@ -91,9 +96,16 @@ export class SequenceService {
           totalDuration: input.totalDuration,
           transition: input.transition,
           continuity: input.continuity,
-          caption: plan.caption || content?.description || null,
+          language: input.language || preset?.language || content?.language || "vi",
+          genre: input.genre ?? null,
+          caption: meta.caption || plan.caption || content?.description || null,
           tags: JSON.stringify(
-            [...new Set([...(plan.hashtags && plan.hashtags.length > 0 ? plan.hashtags : safeTags(content?.tags)), ...(preset?.hashtags ?? [])])]
+            [
+              ...new Set([
+                ...(meta.tags?.length ? meta.tags : plan.hashtags && plan.hashtags.length > 0 ? plan.hashtags : safeTags(content?.tags)),
+                ...(preset?.hashtags ?? []),
+              ]),
+            ]
           ),
           status: "PLANNED",
         },

@@ -1,3 +1,5 @@
+import { languageName } from "@/lib/content/script-writer";
+
 /**
  * FLOW_AGENT mode: ONE prompt describes the whole video and Flow's own Agent splits it into scenes
  * (reference images once, N clips in the same project). No external AI / API key is used for planning.
@@ -34,8 +36,14 @@ export function buildAgentBatchPrompt(i: AgentBatchPromptInput): string {
     `Use the same main character(s), product and setting in every clip: create the reference images once and reuse them in every scene. Keep ONE consistent visual style, and make each clip continue naturally from the end of the previous clip (same location, lighting and continuity of action) so the clips can be joined into one long video. Label the prompts "Scene 1" ... "Scene ${i.count}". Do not create any extra videos.`,
   ];
   lines.push(AGENT_NO_QUESTIONS_RULE);
+  if (/^Scene 1\b/m.test(i.brief)) {
+    // a written script (lib/content/script-writer.ts): the Agent must not re-invent the story
+    lines.push(
+      `The brief below is a finished script: follow it scene by scene. Clip k = "Scene k" of the script, in the same order. Keep the exact spoken words given in quotes, do not translate or change them, and do not add speech to scenes that have none.`
+    );
+  }
   if (i.hasReferenceImages) lines.push("The attached image(s) are the exact product / character references: keep them identical in every scene.");
-  if (i.language) lines.push(`Any spoken words or on-screen text should be in ${i.language}.`);
+  if (i.language) lines.push(`All spoken words (dialogue and narration) must be in ${languageName(i.language)}. No on-screen text or subtitles.`);
   lines.push("", "Brief:", i.brief.trim());
   if (i.style && i.style.trim()) lines.push("", "Visual style notes:", i.style.trim());
   return lines.join("\n");

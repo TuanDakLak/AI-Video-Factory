@@ -13,6 +13,8 @@ import {
   Settings,
   Layers,
   LogOut,
+  Inbox,
+  Radio,
 } from "lucide-react";
 
 export function Sidebar({ user }: { user: { name: string; email: string; role: "USER" | "ADMIN" } }) {
@@ -31,6 +33,18 @@ export function Sidebar({ user }: { user: { name: string; email: string; role: "
       href: "/dashboard",
       icon: LayoutDashboard,
       active: pathname === "/dashboard" || pathname === "/",
+    },
+    {
+      name: "Chủ đề",
+      href: "/topics",
+      icon: Inbox,
+      active: pathname.startsWith("/topics"),
+    },
+    {
+      name: "Kênh",
+      href: "/presets",
+      icon: Radio,
+      active: pathname.startsWith("/presets"),
     },
     {
       name: "Dự án",
@@ -55,12 +69,6 @@ export function Sidebar({ user }: { user: { name: string; email: string; role: "
       href: "/sequences",
       icon: Layers,
       active: pathname.startsWith("/sequences"),
-    },
-    {
-      name: "Preset kênh",
-      href: "/presets",
-      icon: Settings,
-      active: pathname.startsWith("/presets"),
     },
     {
       name: "Thư viện Video",

@@ -1,3 +1,4 @@
+import "../lib/load-env";
 import { Worker, Job } from "bullmq";
 import { getRedisConnection } from "../lib/queue/redis";
 import { GENERATION_QUEUE_NAME, GenerationJobData } from "../lib/queue/generation-queue";
@@ -6,6 +7,7 @@ import { prisma } from "../lib/db";
 import { SequenceService } from "../lib/sequence/sequence-service";
 import { VeoApiService } from "../lib/automation/veo-api";
 import { notifyWebhook } from "../lib/automation/notify";
+import { automationTick } from "../lib/automation/scheduler";
 
 console.log("==================================================");
 console.log("🚀 Google Flow Automation Worker (Phase 3)");
@@ -124,6 +126,31 @@ if (healthHours > 0) {
     }
   }, healthHours * 3600 * 1000);
   console.log(`[Health] Flow UI self-check every ${healthHours}h`);
+}
+
+// Topic inbox scheduler: auto-approves topics whose review delay is over and starts each automated channel's next video
+// (videos/day + daily credit budget). AUTOMATION_TICK_SEC=0 disables it.
+const tickSec = parseInt(process.env.AUTOMATION_TICK_SEC || "60", 10);
+let ticking = false;
+if (tickSec > 0) {
+  const tick = async () => {
+    if (ticking) return; // a pass can take a while (LLM script writing): never overlap
+    ticking = true;
+    try {
+      const r = await automationTick();
+      if (r.research) console.log(`[Research] ${r.research}`);
+      if (r.autoApproved || r.started.length || r.skipped.length) {
+        console.log(`[Scheduler] auto-approved ${r.autoApproved}; started: ${r.started.join(" | ") || "-"}; skipped: ${r.skipped.join(" | ") || "-"}`);
+      }
+    } catch (e: any) {
+      console.error("[Scheduler] tick error:", e.message);
+    } finally {
+      ticking = false;
+    }
+  };
+  setInterval(tick, tickSec * 1000);
+  setTimeout(tick, 5000);
+  console.log(`[Scheduler] topic inbox every ${tickSec}s`);
 }
 
 // Graceful shutdown

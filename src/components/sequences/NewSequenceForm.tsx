@@ -29,7 +29,7 @@ export default function NewSequenceForm({ projects, contents, googleAccounts, in
   const [contentId, setContentId] = useState(initialContentId || "");
   const [brief, setBrief] = useState("");
   const [title, setTitle] = useState("");
-  const [totalDuration, setTotalDuration] = useState(90);
+  const [totalDuration, setTotalDuration] = useState(30);
   const [clipSeconds, setClipSeconds] = useState(10);
   const [aspectRatio, setAspectRatio] = useState<"9:16" | "16:9" | "1:1">("9:16");
   const [model, setModel] = useState("Veo 3.1 Fast");
@@ -190,7 +190,7 @@ export default function NewSequenceForm({ projects, contents, googleAccounts, in
             <label className="text-xs font-semibold text-slate-700">Tổng thời lượng (giây)</label>
             <input type="number" min={8} max={300} value={totalDuration} onChange={(e) => setTotalDuration(parseInt(e.target.value, 10) || 0)} className={inputCls} />
             <div className="flex gap-1.5 flex-wrap pt-1">
-              {[16, 32, 48, 64, 90].map((v) => (
+              {[30, 60, 90].map((v) => (
                 <button key={v} type="button" onClick={() => setTotalDuration(v)}
                   className={`text-[11px] px-2 py-0.5 rounded-lg border ${totalDuration === v ? "bg-emerald-50 border-emerald-400 text-emerald-700" : "border-slate-200 text-slate-500 hover:border-slate-300"}`}>
                   {v}s

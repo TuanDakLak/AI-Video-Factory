@@ -33,7 +33,7 @@ export interface AutomationResult {
 /** ownerId: every project, preset and Google account used belongs to this user. */
 export async function runAutomation(req: AutomationRequest, ownerId: string): Promise<AutomationResult[]> {
   const topics = [...(req.topics ?? []), ...(req.topic ? [req.topic] : [])];
-  const preset = req.presetId ? getPreset(req.presetId, ownerId) : null;
+  const preset = req.presetId ? await getPreset(req.presetId, ownerId) : null;
   if (req.presetId && !preset) throw new Error("Không tìm thấy preset kênh.");
   const projectId = await ensureProject(ownerId, req.projectId);
   const out: AutomationResult[] = [];

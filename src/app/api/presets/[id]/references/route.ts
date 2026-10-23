@@ -14,7 +14,7 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
   const user = await requireApiUser();
   if (user instanceof NextResponse) return user;
   const { id } = await params;
-  const preset = getPreset(id, user.id);
+  const preset = await getPreset(id, user.id);
   if (!preset) return NextResponse.json({ error: "Không tìm thấy preset." }, { status: 404 });
   const form = await req.formData();
   const files = form.getAll("files").filter((f): f is File => typeof f !== "string");
@@ -29,7 +29,7 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
     const saved = await storage.saveFile(PRESET_STORAGE_PROJECT, f.name || "reference.png", Buffer.from(await f.arrayBuffer()), PRESET_REF_FOLDER);
     keys.push(saved.storageKey);
   }
-  updatePreset(id, user.id, { referenceImageKeys: keys });
+  await updatePreset(id, user.id, { referenceImageKeys: keys });
   return NextResponse.json({ success: true, count: keys.length });
 }
 
@@ -38,13 +38,13 @@ export async function DELETE(req: NextRequest, { params }: { params: Promise<{ i
   const user = await requireApiUser();
   if (user instanceof NextResponse) return user;
   const { id } = await params;
-  const preset = getPreset(id, user.id);
+  const preset = await getPreset(id, user.id);
   if (!preset) return NextResponse.json({ error: "Không tìm thấy preset." }, { status: 404 });
   const index = parseInt(req.nextUrl.searchParams.get("index") || "", 10);
   if (!Number.isInteger(index) || index < 0 || index >= preset.referenceImageKeys.length) return NextResponse.json({ error: "Chỉ số ảnh không hợp lệ." }, { status: 400 });
   const keys = [...preset.referenceImageKeys];
   const [removed] = keys.splice(index, 1);
   await storage.deleteFile(removed);
-  updatePreset(id, user.id, { referenceImageKeys: keys });
+  await updatePreset(id, user.id, { referenceImageKeys: keys });
   return NextResponse.json({ success: true, count: keys.length });
 }

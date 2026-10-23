@@ -6,21 +6,32 @@ import {
   aiGeneratedContentOutputSchema,
 } from "@/lib/validations";
 import { buildSystemPrompt, buildUserPrompt } from "./prompt-engine";
+import { DEFAULT_GEMINI_MODEL } from "./llm";
 
 export class GeminiProvider implements IAIProvider {
   public readonly name = "Google Gemini";
-  private apiKey: string | undefined;
-  private client: GoogleGenerativeAI | null = null;
+  private cachedKey: string | undefined;
+  private cachedClient: GoogleGenerativeAI | null = null;
 
-  constructor() {
-    this.apiKey = process.env.GEMINI_API_KEY;
-    if (this.apiKey && this.apiKey.trim() !== "") {
-      this.client = new GoogleGenerativeAI(this.apiKey.trim());
+  // read on every use, not at import: the key can be set after this singleton is created (worker .env loading,
+  // key rotation, tests that switch the LLM off)
+  private get apiKey(): string | undefined {
+    const k = (process.env.GEMINI_API_KEY || "").trim();
+    return k || undefined;
+  }
+
+  private get client(): GoogleGenerativeAI | null {
+    const k = this.apiKey;
+    if (!k) return null;
+    if (k !== this.cachedKey) {
+      this.cachedKey = k;
+      this.cachedClient = new GoogleGenerativeAI(k);
     }
+    return this.cachedClient;
   }
 
   public isConfigured(): boolean {
-    return Boolean(this.apiKey && this.apiKey.trim() !== "");
+    return Boolean(this.apiKey);
   }
 
   public async generateContent(input: AIGenerateContentInput): Promise<AIGeneratedContentOutput> {
@@ -67,7 +78,7 @@ export class GeminiProvider implements IAIProvider {
         } else {
           // Native Gemini SDK logic
           const model = this.client!.getGenerativeModel({
-            model: "gemini-2.0-flash",
+            model: process.env.GEMINI_MODEL || DEFAULT_GEMINI_MODEL,
             generationConfig: {
               responseMimeType: "application/json",
               temperature: 0.7,
@@ -150,7 +161,7 @@ Title language: ${input.language === "vi" ? "Vietnamese" : input.language}`;
           rawText = data.choices?.[0]?.message?.content || "";
         } else {
           const model = this.client!.getGenerativeModel({
-            model: "gemini-2.0-flash",
+            model: process.env.GEMINI_MODEL || DEFAULT_GEMINI_MODEL,
             generationConfig: { responseMimeType: "application/json", temperature: 0.7 },
             systemInstruction: sysInstruction,
           });

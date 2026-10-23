@@ -9,7 +9,7 @@ export async function GET(_req: NextRequest, { params }: { params: Promise<{ id:
   const user = await requireApiUser();
   if (user instanceof NextResponse) return user;
   const { id } = await params;
-  const p = getPreset(id, user.id);
+  const p = await getPreset(id, user.id);
   return p ? NextResponse.json(p) : NextResponse.json({ error: "Không tìm thấy preset." }, { status: 404 });
 }
 
@@ -20,7 +20,12 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
   const body = await req.json().catch(() => ({}));
   const parsed = presetInputSchema.partial().safeParse(body);
   if (!parsed.success) return NextResponse.json({ error: parsed.error.errors[0]?.message || "Dữ liệu không hợp lệ" }, { status: 400 });
-  const p = updatePreset(id, user.id, parsed.data);
+  let p;
+  try {
+    p = await updatePreset(id, user.id, parsed.data);
+  } catch (e: any) {
+    return NextResponse.json({ error: e.message || "Không cập nhật được kênh." }, { status: 400 });
+  }
   return p ? NextResponse.json(p) : NextResponse.json({ error: "Không tìm thấy preset." }, { status: 404 });
 }
 
@@ -28,7 +33,7 @@ export async function DELETE(_req: NextRequest, { params }: { params: Promise<{ 
   const user = await requireApiUser();
   if (user instanceof NextResponse) return user;
   const { id } = await params;
-  const p = deletePreset(id, user.id);
+  const p = await deletePreset(id, user.id);
   if (!p) return NextResponse.json({ error: "Không tìm thấy preset." }, { status: 404 });
   for (const k of p.referenceImageKeys) await storage.deleteFile(k);
   return NextResponse.json({ success: true });

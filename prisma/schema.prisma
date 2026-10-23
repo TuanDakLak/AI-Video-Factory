@@ -198,6 +198,8 @@ model Sequence {
   continuity         String         @default("INDEPENDENT") // "INDEPENDENT" | "LAST_FRAME" (scene N starts from the last frame of scene N-1)
   referenceImageKeys String         @default("[]") // JSON array (max 3) of storage keys: product/character photos attached to scenes as Flow "Ingredients"
   caption            String?        @db.Text // social caption suggested for the final video (used by the publish step)
+  language           String         @default("vi") // spoken words / on-screen text language passed to Flow
+  genre              String? // genre template key (lib/content/genres.ts) the script was written with
   tags               String         @default("[]") // JSON array of hashtags/keywords
   status             SequenceStatus @default(PLANNED)
   errorMessage       String?        @db.Text
@@ -205,6 +207,7 @@ model Sequence {
   updatedAt          DateTime       @updatedAt
   scenes             Generation[]
   finalVideo         VideoAsset?    @relation("SequenceFinal")
+  topic              Topic?
 }
 
 enum UserRole {
@@ -226,6 +229,7 @@ model User {
   googleAccounts GoogleAccount[]
   refreshTokens  RefreshToken[]
   oauthAccounts  OAuthAccount[]
+  channels       Channel[]
 }
 
 // Opaque refresh tokens, rotated on every use. All tokens issued from one login share a familyId; presenting an already
@@ -262,4 +266,77 @@ model OAuthAccount {
 
   @@unique([provider, providerAccountId])
   @@index([userId])
+}
+
+// A channel = identity (look, language, hashtags, reference images) + automation settings. Replaces the JSON presets.
+model Channel {
+  id                 String @id @default(cuid())
+  ownerId            String
+  owner              User   @relation(fields: [ownerId], references: [id], onDelete: Cascade)
+  name               String
+  styleBible         String @default("") @db.Text
+  language           String @default("vi")
+  aspectRatio        String @default("9:16")
+  model              String @default("Veo 3.1 Fast")
+  clipSeconds        Int    @default(10)
+  continuity         String @default("FLOW_AGENT")
+  transition         String @default("CUT")
+  hashtags           String @default("[]") // JSON string[]
+  referenceImageKeys String @default("[]") // JSON string[] (max 3)
+
+  // --- automation ---
+  automationEnabled Boolean   @default(false)
+  niche             String    @default("") @db.Text // what the channel is about: guides research + scripts
+  genres            String    @default("[]") // JSON genre keys allowed for this channel
+  durations         String    @default("[30]") // JSON seconds, e.g. [30, 60]
+  videosPerDay      Int       @default(1)
+  reviewHours       Int       @default(12) // new topics are produced after this delay unless deleted; 0 = manual approval only
+  dailyCreditBudget Int       @default(200) // Flow credits this channel may spend per day (0 = no cap)
+  projectId         String? // project the videos are filed under (created on first use)
+  googleAccountId   String? // preferred Google account (else any connected one of the owner)
+  lastResearchAt    DateTime? // last automatic topic research run
+  lastResearchNote  String?   @db.Text // outcome of that run (shown in the UI)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  topics    Topic[]
+
+  @@index([ownerId])
+}
+
+enum TopicStatus {
+  SUGGESTED // waiting in the inbox; produced at autoApproveAt unless rejected
+  APPROVED // ready to be produced when the channel's schedule allows
+  PRODUCING // script written, video rendering
+  READY // final video exists
+  FAILED
+  REJECTED // deleted by the user: kept so it is never suggested again
+}
+
+model Topic {
+  id              String      @id @default(cuid())
+  channelId       String
+  channel         Channel     @relation(fields: [channelId], references: [id], onDelete: Cascade)
+  title           String
+  normalizedTitle String // lower-case, accents stripped: duplicate detection
+  angle           String?     @db.Text // the hook / why it is interesting
+  genre           String // genre template key
+  durationSec     Int
+  source          String      @default("MANUAL") // MANUAL | AI_RESEARCH | API
+  sourceUrls      String      @default("[]")
+  score           Float?
+  status          TopicStatus @default(SUGGESTED)
+  autoApproveAt   DateTime?
+  approvedAt      DateTime?
+  startedAt       DateTime?
+  finishedAt      DateTime?
+  rejectedAt      DateTime?
+  sequenceId      String?     @unique
+  sequence        Sequence?   @relation(fields: [sequenceId], references: [id], onDelete: SetNull)
+  errorMessage    String?     @db.Text
+  createdAt       DateTime    @default(now())
+  updatedAt       DateTime    @updatedAt
+
+  @@index([channelId, status])
+  @@index([channelId, normalizedTitle])
 }

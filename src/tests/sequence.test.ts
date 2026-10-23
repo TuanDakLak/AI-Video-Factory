@@ -5,7 +5,7 @@ import { execFileSync } from "child_process";
 import { createSequenceSchema, updateSequenceSchema, startSequenceSchema, automationRequestSchema } from "../lib/validations";
 import { buildAgentBatchPrompt, buildAgentNudge } from "../lib/sequence/agent-prompt";
 import { assertCanSpend, creditLimits } from "../lib/sequence/credit-guard";
-import { createPreset, deletePreset, getPreset, listPresets, presetInputSchema, updatePreset } from "../lib/presets";
+import { presetInputSchema } from "../lib/presets";
 import { assertApiBudget, estimateApiUsd, veoSettings } from "../lib/automation/veo-config";
 import { makeSolidPng } from "../lib/automation/test-png";
 import { readHealthHistory, saveHealthReport } from "../lib/automation/health-store";
@@ -46,7 +46,7 @@ async function run() {
 
   console.log("\n--- 2. Fallback scene planner (no AI key) ---");
   const savedKey = process.env.GEMINI_API_KEY;
-  delete process.env.GEMINI_API_KEY;
+  process.env.GEMINI_API_KEY = ""; // not delete: Prisma re-loads .env on connect but never overrides a set variable
   for (const [brief, total, clip] of [
     ["Cảnh 1: mở cửa.\nCảnh 2: pha cà phê.\nCảnh 3: khách vào.\nCảnh 4: mỉm cười.", 32, 8],
     ["Một chú cáo đi trong rừng tuyết. Mặt trời mọc.", 40, 8],
@@ -144,15 +144,11 @@ async function run() {
   const tmpWork = fs.mkdtempSync(path.join(os.tmpdir(), "preset-test-"));
   process.chdir(tmpWork);
   try {
-    assert(listPresets("user-a").length === 0, "no presets in a fresh data dir");
-    const pr = createPreset(presetInputSchema.parse({ name: "Kênh Amazon", styleBible: "cinematic jungle", hashtags: ["#amazon"] }), "user-a");
-    assert(pr.clipSeconds === 10 && pr.continuity === "FLOW_AGENT" && pr.aspectRatio === "9:16", "preset defaults (10s clips, Flow Agent, 9:16)");
-    assert(getPreset(pr.id, "user-a")?.name === "Kênh Amazon", "preset can be read back");
-    assert(getPreset(pr.id, "user-b") === null && listPresets("user-b").length === 0, "another user cannot see the preset");
-    assert(updatePreset(pr.id, "user-b", { clipSeconds: 8 }) === null && deletePreset(pr.id, "user-b") === null, "another user cannot update/delete it");
-    assert(updatePreset(pr.id, "user-a", { clipSeconds: 8 })?.clipSeconds === 8, "preset can be updated");
-    assert(!presetInputSchema.safeParse({ name: "   " }).success, "empty preset name rejected");
-    assert(deletePreset(pr.id, "user-a") !== null && listPresets("user-a").length === 0, "preset can be deleted");
+    // channels now live in the database: CRUD + isolation are covered by src/tests/automation.test.ts
+    const pr = presetInputSchema.parse({ name: "Kênh Amazon", styleBible: "cinematic jungle", hashtags: ["#amazon"] });
+    assert(pr.clipSeconds === 10 && pr.continuity === "FLOW_AGENT" && pr.aspectRatio === "9:16" && pr.durations[0] === 30, "channel defaults (10s clips, Flow Agent, 9:16, 30s videos)");
+    assert(!presetInputSchema.safeParse({ name: "   " }).success, "empty channel name rejected");
+    assert(!presetInputSchema.safeParse({ name: "x", durations: [45] }).success, "video length must be 30/60/90s");
 
     saveHealthReport({ at: "t", accountId: "a", accountName: "n", ok: false, credits: 5, items: [{ name: "login", ok: false, detail: "x" }] });
     assert(readHealthHistory()[0]?.items[0].name === "login", "health report is persisted (newest first)");

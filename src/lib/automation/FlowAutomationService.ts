@@ -1000,6 +1000,7 @@ export class FlowAutomationService {
             count: expectedVideos,
             aspectRatio: seq!.aspectRatio,
             hasReferenceImages: attachments.files.length > 0,
+            language: seq!.language,
           })
         : generation.prompt;
       if (isBatch) {

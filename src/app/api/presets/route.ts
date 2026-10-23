@@ -7,7 +7,7 @@ export const dynamic = "force-dynamic";
 export async function GET() {
   const user = await requireApiUser();
   if (user instanceof NextResponse) return user;
-  return NextResponse.json(listPresets(user.id));
+  return NextResponse.json(await listPresets(user.id));
 }
 
 export async function POST(req: NextRequest) {
@@ -16,5 +16,9 @@ export async function POST(req: NextRequest) {
   const body = await req.json().catch(() => ({}));
   const parsed = presetInputSchema.safeParse(body);
   if (!parsed.success) return NextResponse.json({ error: parsed.error.errors[0]?.message || "Dữ liệu không hợp lệ" }, { status: 400 });
-  return NextResponse.json(createPreset(parsed.data, user.id), { status: 201 });
+  try {
+    return NextResponse.json(await createPreset(parsed.data, user.id), { status: 201 });
+  } catch (e: any) {
+    return NextResponse.json({ error: e.message || "Không tạo được kênh." }, { status: 400 });
+  }
 }

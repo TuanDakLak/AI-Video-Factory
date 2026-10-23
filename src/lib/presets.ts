@@ -1,92 +1,136 @@
-import fs from "fs";
-import path from "path";
-import { randomUUID } from "crypto";
 import { z } from "zod";
+import type { Channel } from "@prisma/client";
+import { prisma } from "@/lib/db";
+import { GENRE_KEYS } from "@/lib/content/genres";
 
 /**
- * Channel presets: the fixed identity of a channel (visual style, language, hashtags, format and up to 3 reference images)
- * so unattended runs (hot-trend topics) always look like the same channel. Stored in data/channel-presets.json (no DB migration).
+ * Channels (formerly "channel presets"): the fixed identity of a channel (visual style, language, hashtags, format and
+ * up to 3 reference images) plus its automation settings (niche, genres, durations, videos/day, review delay, budget).
+ * Stored in the Channel table; every accessor is scoped to an owner, so another user's channel behaves like a missing one.
  */
 export const PRESET_REF_FOLDER = "references";
 export const PRESET_STORAGE_PROJECT = "_presets";
 
+const DURATIONS = [30, 60, 90] as const;
+
 export const presetInputSchema = z.object({
-  name: z.string().trim().min(1, "Tên preset không được trống").max(80),
+  name: z.string().trim().min(1, "Tên kênh không được trống").max(80),
   styleBible: z.string().max(4000).default(""),
   language: z.string().max(40).default("vi"),
   aspectRatio: z.enum(["16:9", "9:16", "1:1"]).default("9:16"),
-  model: z.string().default("Veo 3.1 Fast"),
+  model: z.string().max(60).default("Veo 3.1 Fast"),
   clipSeconds: z.coerce.number().int().min(4).max(15).default(10),
   continuity: z.enum(["FLOW_AGENT", "INDEPENDENT", "LAST_FRAME"]).default("FLOW_AGENT"),
   transition: z.enum(["CUT", "CROSSFADE"]).default("CUT"),
   hashtags: z.array(z.string().max(60)).max(30).default([]),
+  // automation
+  automationEnabled: z.boolean().default(false),
+  niche: z.string().max(2000).default(""),
+  genres: z.array(z.enum(GENRE_KEYS)).max(GENRE_KEYS.length).default([]),
+  durations: z.array(z.coerce.number().int().refine((d) => (DURATIONS as readonly number[]).includes(d), "Độ dài phải là 30, 60 hoặc 90 giây")).min(1).max(3).default([30]),
+  videosPerDay: z.coerce.number().int().min(0).max(20).default(1),
+  reviewHours: z.coerce.number().int().min(0).max(168).default(12),
+  dailyCreditBudget: z.coerce.number().int().min(0).max(5000).default(200),
+  googleAccountId: z.string().nullable().optional(),
 });
 export type PresetInput = z.infer<typeof presetInputSchema>;
 
-export interface ChannelPreset extends PresetInput {
+export interface ChannelPreset extends Omit<PresetInput, "googleAccountId"> {
   id: string;
-  /** user id; missing only on presets created before auth existed (claimed by the first admin) */
-  ownerId?: string;
+  ownerId: string;
   referenceImageKeys: string[];
+  googleAccountId: string | null;
+  projectId: string | null;
   createdAt: string;
   updatedAt: string;
 }
 
-const FILE = () => path.resolve(process.cwd(), "data", "channel-presets.json");
-
-function readAll(): ChannelPreset[] {
+const arr = <T>(json: string | null | undefined, fallback: T[]): T[] => {
   try {
-    const v = JSON.parse(fs.readFileSync(FILE(), "utf8"));
-    return Array.isArray(v) ? v : [];
+    const v = JSON.parse(json || "");
+    return Array.isArray(v) ? v : fallback;
   } catch {
-    return [];
+    return fallback;
   }
+};
+
+export function toPreset(c: Channel): ChannelPreset {
+  return {
+    id: c.id,
+    ownerId: c.ownerId,
+    name: c.name,
+    styleBible: c.styleBible,
+    language: c.language,
+    aspectRatio: c.aspectRatio as PresetInput["aspectRatio"],
+    model: c.model,
+    clipSeconds: c.clipSeconds,
+    continuity: c.continuity as PresetInput["continuity"],
+    transition: c.transition as PresetInput["transition"],
+    hashtags: arr<string>(c.hashtags, []),
+    referenceImageKeys: arr<string>(c.referenceImageKeys, []),
+    automationEnabled: c.automationEnabled,
+    niche: c.niche,
+    genres: arr<PresetInput["genres"][number]>(c.genres, []),
+    durations: arr<number>(c.durations, [30]),
+    videosPerDay: c.videosPerDay,
+    reviewHours: c.reviewHours,
+    dailyCreditBudget: c.dailyCreditBudget,
+    googleAccountId: c.googleAccountId,
+    projectId: c.projectId,
+    createdAt: c.createdAt.toISOString(),
+    updatedAt: c.updatedAt.toISOString(),
+  };
 }
 
-function writeAll(list: ChannelPreset[]): void {
-  fs.mkdirSync(path.dirname(FILE()), { recursive: true });
-  const tmp = `${FILE()}.tmp`;
-  fs.writeFileSync(tmp, JSON.stringify(list, null, 2));
-  fs.renameSync(tmp, FILE());
+function toData(input: Partial<PresetInput> & { referenceImageKeys?: string[] }) {
+  const { hashtags, genres, durations, referenceImageKeys, ...rest } = input;
+  return {
+    ...rest,
+    ...(hashtags !== undefined ? { hashtags: JSON.stringify(hashtags) } : {}),
+    ...(genres !== undefined ? { genres: JSON.stringify(genres) } : {}),
+    ...(durations !== undefined ? { durations: JSON.stringify([...new Set(durations)].sort((a, b) => a - b)) } : {}),
+    ...(referenceImageKeys !== undefined ? { referenceImageKeys: JSON.stringify(referenceImageKeys) } : {}),
+  };
 }
 
-/** Every accessor is scoped to an owner: a preset of another user behaves exactly like a missing one. */
-export function listPresets(ownerId: string): ChannelPreset[] {
-  return readAll().filter((p) => p.ownerId === ownerId);
+/** The preferred Google account must be one of the owner's. */
+async function assertAccount(ownerId: string, googleAccountId: string | null | undefined) {
+  if (!googleAccountId) return;
+  const ok = await prisma.googleAccount.findFirst({ where: { id: googleAccountId, ownerId }, select: { id: true } });
+  if (!ok) throw new Error("Không tìm thấy tài khoản Google đã chọn.");
 }
 
-export function getPreset(id: string, ownerId: string): ChannelPreset | null {
-  return readAll().find((p) => p.id === id && p.ownerId === ownerId) ?? null;
+export async function listPresets(ownerId: string): Promise<ChannelPreset[]> {
+  const rows = await prisma.channel.findMany({ where: { ownerId }, orderBy: { createdAt: "desc" } });
+  return rows.map(toPreset);
 }
 
-export function createPreset(input: PresetInput, ownerId: string): ChannelPreset {
-  const now = new Date().toISOString();
-  const preset: ChannelPreset = { ...input, id: randomUUID(), ownerId, referenceImageKeys: [], createdAt: now, updatedAt: now };
-  writeAll([preset, ...readAll()]);
-  return preset;
+export async function getPreset(id: string, ownerId: string): Promise<ChannelPreset | null> {
+  const c = await prisma.channel.findFirst({ where: { id, ownerId } });
+  return c ? toPreset(c) : null;
 }
 
-export function updatePreset(id: string, ownerId: string, patch: Partial<PresetInput> & { referenceImageKeys?: string[] }): ChannelPreset | null {
-  const list = readAll();
-  const i = list.findIndex((p) => p.id === id && p.ownerId === ownerId);
-  if (i < 0) return null;
-  list[i] = { ...list[i], ...patch, id, ownerId, updatedAt: new Date().toISOString() };
-  writeAll(list);
-  return list[i];
+export async function createPreset(input: PresetInput, ownerId: string): Promise<ChannelPreset> {
+  await assertAccount(ownerId, input.googleAccountId);
+  const c = await prisma.channel.create({ data: { ...toData(input), ownerId } as any });
+  return toPreset(c);
 }
 
-export function deletePreset(id: string, ownerId: string): ChannelPreset | null {
-  const list = readAll();
-  const found = list.find((p) => p.id === id && p.ownerId === ownerId) ?? null;
-  if (found) writeAll(list.filter((p) => p !== found));
-  return found;
+export async function updatePreset(
+  id: string,
+  ownerId: string,
+  patch: Partial<PresetInput> & { referenceImageKeys?: string[]; projectId?: string | null }
+): Promise<ChannelPreset | null> {
+  const existing = await prisma.channel.findFirst({ where: { id, ownerId }, select: { id: true } });
+  if (!existing) return null;
+  await assertAccount(ownerId, patch.googleAccountId);
+  const c = await prisma.channel.update({ where: { id }, data: toData(patch) as any });
+  return toPreset(c);
 }
 
-/** Bootstrap: presets created before auth existed become the first admin's. */
-export function claimUnownedPresets(ownerId: string): number {
-  const list = readAll();
-  let n = 0;
-  for (const p of list) if (!p.ownerId) { p.ownerId = ownerId; n++; }
-  if (n) writeAll(list);
-  return n;
+export async function deletePreset(id: string, ownerId: string): Promise<ChannelPreset | null> {
+  const c = await prisma.channel.findFirst({ where: { id, ownerId } });
+  if (!c) return null;
+  await prisma.channel.delete({ where: { id } }); // cascades its topics
+  return toPreset(c);
 }

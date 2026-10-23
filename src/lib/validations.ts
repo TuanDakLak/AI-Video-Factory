@@ -112,7 +112,7 @@ export const createSequenceSchema = z
     projectId: z.string().min(1, "Mã dự án không hợp lệ"),
     contentId: z.string().optional(),
     title: z.string().max(160).optional(),
-    brief: z.string().max(4000).optional(),
+    brief: z.string().max(12000).optional(), // a full 9-scene script can be long
     totalDuration: z.coerce.number().int().min(8, "Tổng thời lượng tối thiểu 8 giây").max(300, "Tổng thời lượng tối đa 300 giây"),
     clipSeconds: z.coerce.number().int().min(4).max(15).default(10),
     aspectRatio: z.enum(["16:9", "9:16", "1:1"]).default("9:16"),
@@ -122,6 +122,10 @@ export const createSequenceSchema = z
     googleAccountId: z.string().optional(),
     /** Channel preset (see lib/presets.ts): its style, hashtags and reference images are applied to the new video */
     presetId: z.string().optional(),
+    /** spoken language (ISO code); defaults to the channel's, else "vi" */
+    language: z.string().max(10).optional(),
+    /** genre template key (lib/content/genres.ts) */
+    genre: z.string().max(40).optional(),
   })
   .refine((v) => Boolean(v.contentId) || Boolean(v.brief && v.brief.trim()), {
     message: "Chọn một kịch bản có sẵn hoặc nhập ý tưởng (brief) cho video.",
