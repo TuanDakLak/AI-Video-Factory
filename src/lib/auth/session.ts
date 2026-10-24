@@ -41,7 +41,8 @@ export const getSessionUser = cache(async (): Promise<SessionUser | null> => {
 /** Server components / pages: the user, or a redirect to the login page. */
 export async function requirePageUser(): Promise<SessionUser> {
   const user = await getSessionUser();
-  if (!user) redirect("/login");
+  // not "/login": the access token may still verify, and the middleware would bounce /login back here forever
+  if (!user) redirect("/api/auth/logout");
   return user;
 }
 
