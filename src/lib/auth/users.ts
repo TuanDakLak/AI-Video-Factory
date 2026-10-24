@@ -44,7 +44,7 @@ export interface PublicUser {
 
 /**
  * Creates a user. The first account ever created becomes ADMIN and takes ownership of everything created before
- * auth existed (projects, Google accounts, presets). Later accounts start EMPTY: they only ever see what they create.
+ * auth existed (projects, Google accounts, channels). Later accounts start EMPTY: they only ever see what they create.
  * Later sign-ups need ALLOW_SIGNUP=true (or `npm run user:create`). An advisory lock serialises concurrent first
  * sign-ups so only one of them can become the bootstrap admin.
  */

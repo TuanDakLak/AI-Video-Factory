@@ -49,7 +49,6 @@ jobs:
       AUTH_SECRET: ci-only-auth-secret-not-used-anywhere-else-0123456789
       # never talk to real services from CI
       GEMINI_API_KEY: ""
-      VEO_API_KEY: ""
       AUTOMATION_WEBHOOK_URL: ""
       NEXT_TELEMETRY_DISABLED: "1"
 
