@@ -27,6 +27,7 @@ interface VideoDetailViewClientProps {
     width?: number | null;
     height?: number | null;
     createdAt: Date | string;
+    sequenceId?: string | null;
     project: { id: string; name: string; topic: string };
     generation?: {
       id: string;
@@ -34,7 +35,6 @@ interface VideoDetailViewClientProps {
       model: string;
       aspectRatio: string;
       duration: string;
-      content?: { id: string; title: string } | null;
       googleAccount?: { id: string; name: string; label: string } | null;
     } | null;
   };
@@ -64,28 +64,13 @@ export default function VideoDetailViewClient({ video }: VideoDetailViewClientPr
       <div className="flex flex-col sm:flex-row sm:items-start justify-between gap-4 pb-6 border-b border-slate-100">
         <div className="space-y-1">
           <div className="flex items-center gap-2 flex-wrap">
-            <span className="text-xs text-slate-400">
-              Dự án:{" "}
-              <Link
-                href={`/projects/${video.project.id}`}
-                className="font-medium text-emerald-700 hover:underline"
-              >
-                {video.project.name}
-              </Link>
-            </span>
-
-            {video.generation?.content && (
+            <span className="text-xs text-slate-400">📁 {video.project.name}</span>
+            {video.sequenceId && (
               <>
                 <span className="text-xs text-slate-300">•</span>
-                <span className="text-xs text-slate-500">
-                  Kịch bản:{" "}
-                  <Link
-                    href={`/contents/${video.generation.content.id}`}
-                    className="font-medium text-indigo-700 hover:underline"
-                  >
-                    {video.generation.content.title}
-                  </Link>
-                </span>
+                <Link href={`/sequences/${video.sequenceId}`} className="text-xs font-medium text-emerald-700 hover:underline">
+                  Các clip &amp; nhật ký
+                </Link>
               </>
             )}
           </div>

@@ -16,12 +16,7 @@ export default async function VideosPage() {
       orderBy: { createdAt: "desc" },
       include: {
         project: true,
-        generation: {
-          include: {
-            content: true,
-            googleAccount: true,
-          },
-        },
+        generation: { include: { googleAccount: true } },
       },
     });
   } catch (error) {

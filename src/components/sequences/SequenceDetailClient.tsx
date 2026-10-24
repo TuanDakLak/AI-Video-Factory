@@ -3,7 +3,7 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { AlertCircle, Download, ImagePlus, X, ExternalLink, Film, Loader2, Play, RefreshCw, Save, Scissors, Trash2 } from "lucide-react";
+import { AlertCircle, Download, ImagePlus, X, ExternalLink, Film, Loader2, Play, RefreshCw, Save, Scissors, Send, Trash2 } from "lucide-react";
 import { StatusBadge } from "@/components/ui/Badge";
 import { useToast } from "@/components/ui/ToastContext";
 
@@ -43,14 +43,11 @@ export default function SequenceDetailClient({ initial }: { initial: SequenceDat
   const router = useRouter();
   const { success, error, info } = useToast();
   const [seq, setSeq] = useState<SequenceData>(initial);
-  const [drafts, setDrafts] = useState<Record<string, string>>({});
   const [busy, setBusy] = useState<string | null>(null);
   const [caption, setCaption] = useState<string | null>(null);
   const [tagsText, setTagsText] = useState<string | null>(null);
   const [checks, setChecks] = useState<PlatformCheck[]>([]);
   const fileRef = useRef<HTMLInputElement>(null);
-  const draftsRef = useRef(drafts);
-  draftsRef.current = drafts;
 
   const active = seq.status === "RUNNING" || seq.status === "ASSEMBLING" || seq.scenes.some((s) => IN_FLIGHT.includes(s.status));
 
@@ -83,7 +80,6 @@ export default function SequenceDetailClient({ initial }: { initial: SequenceDat
   const allClips = total > 0 && seq.scenes.every(sceneDone);
   const clipsPurged = !!finalId && seq.scenes.some((s) => !s.videoAsset);
   const pct = total ? Math.round((doneCount / total) * 100) : 0;
-  const dirtyCount = useMemo(() => Object.keys(drafts).length, [drafts]);
 
   const call = async (key: string, url: string, init: RequestInit, okMsg?: string) => {
     setBusy(key);
@@ -102,31 +98,12 @@ export default function SequenceDetailClient({ initial }: { initial: SequenceDat
     }
   };
 
-  const saveAllDrafts = async (): Promise<boolean> => {
-    for (const [sceneId, prompt] of Object.entries(draftsRef.current)) {
-      const res = await fetch(`/api/sequences/${seq.id}/scenes/${sceneId}`, {
-        method: "PATCH",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ prompt }),
-      });
-      if (!res.ok) {
-        const data = await res.json().catch(() => ({}));
-        error(data.error || "Không lưu được prompt.");
-        return false;
-      }
-    }
-    setDrafts({});
-    return true;
-  };
-
-  const handleStart = async (sceneIds?: string[]) => {
-    if (dirtyCount > 0 && !(await saveAllDrafts())) return;
-    info("Đang xếp hàng các cảnh...");
-    await call("start", `/api/sequences/${seq.id}/start`, { method: "POST", body: JSON.stringify(sceneIds ? { sceneIds } : {}) });
+  const handleStart = async () => {
+    info("Đang xếp hàng Flow Agent...");
+    await call("start", `/api/sequences/${seq.id}/start`, { method: "POST", body: JSON.stringify({}) });
   };
 
   const handleDryRun = async () => {
-    if (dirtyCount > 0 && !(await saveAllDrafts())) return;
     info("Đang xếp hàng chạy thử (không tốn credit)...");
     await call("dryrun", `/api/sequences/${seq.id}/start`, { method: "POST", body: JSON.stringify({ mode: "DRYRUN" }) });
   };
@@ -139,18 +116,12 @@ export default function SequenceDetailClient({ initial }: { initial: SequenceDat
     await call("recover", `/api/sequences/${seq.id}/start`, { method: "POST", body: JSON.stringify({ mode: "RECOVER", ...(trimmed ? { flowProjectUrl: trimmed } : {}) }) });
   };
 
-  const handleFallback = async () => {
-    const clips = Math.ceil(seq.totalDuration / 8);
-    if (!window.confirm(`Chuyển sang Veo API (Gemini): ${clips} clip × 8s, khoảng ${(clips * 8 * 0.1).toFixed(2)} USD (chỉ tính phí clip thành công, giá Fast ~0,10 USD/giây). Prompt từng cảnh sẽ được lập lại. Tiếp tục?`)) return;
-    await call("fallback", `/api/sequences/${seq.id}/fallback`, { method: "POST", body: JSON.stringify({ autostart: true }) });
-  };
-
   const handleAssemble = async (transition?: string) => {
     await call("assemble", `/api/sequences/${seq.id}/assemble`, { method: "POST", body: JSON.stringify(transition ? { transition } : {}) });
   };
 
   const handleDelete = async () => {
-    if (!window.confirm("Xoá video nhiều cảnh này cùng toàn bộ clip và video đã ghép? Không thể hoàn tác.")) return;
+    if (!window.confirm("Xoá video này cùng các clip và video đã ghép? Không thể hoàn tác.")) return;
     const data = await call("delete", `/api/sequences/${seq.id}`, { method: "DELETE" }, "Đã xoá.");
     if (data) router.push("/sequences");
   };
@@ -197,8 +168,10 @@ export default function SequenceDetailClient({ initial }: { initial: SequenceDat
     if (data) { setCaption(null); setTagsText(null); }
   };
 
-  const startLabel = seq.status === "PLANNED" ? "Bắt đầu render" : seq.status === "NEEDS_USER_ACTION" ? "Tiếp tục" : "Chạy các cảnh còn thiếu";
-  const canStart = !active && !(seq.status === "COMPLETED" && allClips);
+  // older videos rendered scene by scene can only be completed by manual import
+  const legacy = seq.continuity !== "FLOW_AGENT";
+  const startLabel = seq.status === "PLANNED" ? "Bắt đầu render" : "Chạy lại";
+  const canStart = !legacy && !active && doneCount === 0 && (seq.status === "PLANNED" || seq.status === "NEEDS_USER_ACTION");
 
   return (
     <div className="space-y-6">
@@ -208,22 +181,20 @@ export default function SequenceDetailClient({ initial }: { initial: SequenceDat
           <div className="space-y-2 min-w-0">
             <div className="flex items-center gap-2.5 flex-wrap">
               <StatusBadge status={seq.status} />
-              <span className="text-xs text-slate-400">{seq.aspectRatio} • {seq.model} • {seq.clipSeconds}s/clip • {seq.transition === "CROSSFADE" ? "Crossfade" : "Cắt thẳng"} • {seq.continuity === "FLOW_AGENT" ? "Flow tự chia cảnh" : seq.continuity === "LAST_FRAME" ? "Nối frame cuối" : "Cảnh độc lập"}</span>
+              <span className="text-xs text-slate-400">{seq.aspectRatio} • {seq.model} • {total} clip × {seq.clipSeconds}s • {seq.transition === "CROSSFADE" ? "Crossfade" : "Cắt thẳng"}{legacy ? " • chế độ cũ (Import thủ công)" : ""}</span>
             </div>
             <h1 className="text-xl font-bold text-slate-900 tracking-tight break-words">{seq.title}</h1>
-            <div className="text-xs text-slate-500">
-              Dự án: <Link href={`/projects/${seq.project.id}`} className="text-emerald-700 font-medium hover:underline">{seq.project.name}</Link>
-            </div>
+            <div className="text-xs text-slate-500">📁 {seq.project.name}</div>
           </div>
           <div className="flex items-center gap-2 flex-wrap">
             {canStart && (
-              <button type="button" onClick={() => handleStart()} disabled={busy !== null}
+              <button type="button" onClick={handleStart} disabled={busy !== null}
                 className="inline-flex items-center gap-2 bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-semibold px-4 py-2.5 rounded-xl shadow-sm disabled:opacity-50">
                 {busy === "start" ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Play className="w-3.5 h-3.5 fill-white" />}
                 <span>{startLabel}</span>
               </button>
             )}
-            {seq.continuity === "FLOW_AGENT" && !active && doneCount === 0 && seq.status === "PLANNED" && (
+            {!legacy && !active && doneCount === 0 && seq.status === "PLANNED" && (
               <button type="button" onClick={handleDryRun} disabled={busy !== null}
                 title="Flow Agent lập kế hoạch, tool đọc số video + giá rồi từ chối. Không tốn credit."
                 className="inline-flex items-center gap-2 border border-emerald-300 text-emerald-800 hover:bg-emerald-50 text-xs font-semibold px-4 py-2.5 rounded-xl disabled:opacity-50">
@@ -231,20 +202,12 @@ export default function SequenceDetailClient({ initial }: { initial: SequenceDat
                 <span>Chạy thử (0 credit)</span>
               </button>
             )}
-            {seq.continuity === "FLOW_AGENT" && !active && !allClips && seq.status === "NEEDS_USER_ACTION" && (
+            {!legacy && !active && !allClips && seq.status === "NEEDS_USER_ACTION" && (
               <button type="button" onClick={handleRecover} disabled={busy !== null}
                 title="Lấy lại các clip Flow đã tạo trong dự án Flow, không tốn credit."
                 className="inline-flex items-center gap-2 border border-orange-300 text-orange-800 hover:bg-orange-50 text-xs font-semibold px-4 py-2.5 rounded-xl disabled:opacity-50">
                 {busy === "recover" ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Download className="w-3.5 h-3.5" />}
                 <span>Khôi phục clip từ Flow</span>
-              </button>
-            )}
-            {!active && doneCount === 0 && (seq.status === "NEEDS_USER_ACTION" || seq.status === "PLANNED") && seq.aspectRatio !== "1:1" && (
-              <button type="button" onClick={handleFallback} disabled={busy !== null}
-                title="Dùng Veo API chính thức của Google thay cho giao diện Flow (tính theo USD)."
-                className="inline-flex items-center gap-2 border border-slate-300 text-slate-700 hover:bg-slate-50 text-xs font-semibold px-4 py-2.5 rounded-xl disabled:opacity-50">
-                {busy === "fallback" ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Film className="w-3.5 h-3.5" />}
-                <span>Chạy bằng Veo API</span>
               </button>
             )}
             {allClips && !active && !clipsPurged && (
@@ -279,31 +242,14 @@ export default function SequenceDetailClient({ initial }: { initial: SequenceDat
         )}
       </div>
 
-      {/* Continuity & references */}
+      {/* Reference images */}
       <div className="bg-white border border-slate-200/90 rounded-3xl p-6 shadow-sm space-y-4">
-        <div className="flex items-center justify-between gap-3 flex-wrap">
-          <h2 className="text-sm font-bold text-slate-900">Độ liền mạch & ảnh tham chiếu</h2>
-          <select
-            value={seq.continuity}
-            disabled={busy !== null || active}
-            onChange={(e) => patchSeq({ continuity: e.target.value }, "Đã đổi chế độ liền mạch (áp dụng cho các cảnh chạy tiếp theo).")}
-            className="px-3 py-1.5 rounded-lg border border-slate-200 text-xs bg-slate-50/40"
-          >
-            <option value="FLOW_AGENT">Flow tự chia cảnh (1 project)</option>
-            <option value="LAST_FRAME">Nối bằng frame cuối</option>
-            <option value="INDEPENDENT">Cảnh độc lập</option>
-          </select>
+        <div>
+          <h2 className="text-sm font-bold text-slate-900">Ảnh tham chiếu</h2>
+          <p className="text-[11px] text-slate-500 leading-relaxed mt-1">
+            Một lần chạy duy nhất: Flow Agent tự chia {seq.totalDuration}s thành {total} clip {seq.clipSeconds}s trong cùng một project và dùng chung các ảnh nhân vật/sản phẩm này cho mọi clip.
+          </p>
         </div>
-        {seq.continuity === "FLOW_AGENT" && (
-          <p className="text-[11px] text-slate-500 leading-relaxed">
-            Một lần chạy duy nhất: Flow Agent tự chia {seq.totalDuration}s thành các clip {seq.clipSeconds}s trong cùng một project, dùng chung ảnh tham chiếu nhân vật/sản phẩm. Prompt từng cảnh bên dưới sẽ được Flow điền sau khi chạy.
-          </p>
-        )}
-        {seq.continuity === "LAST_FRAME" && (
-          <p className="text-[11px] text-slate-500 leading-relaxed">
-            Cảnh sau bắt đầu từ frame cuối của cảnh trước nên các cảnh chạy tuần tự. Render lại một cảnh giữa chừng sẽ làm các cảnh sau lệch mạch: hãy render lại cả các cảnh sau nó.
-          </p>
-        )}
         <div className="flex items-center gap-3 flex-wrap">
           {refKeys.map((_, i) => (
             <div key={i} className="relative">
@@ -352,7 +298,7 @@ export default function SequenceDetailClient({ initial }: { initial: SequenceDat
           <div className="flex items-center justify-between gap-3">
             <h2 className="text-sm font-bold text-slate-900 flex items-center gap-2"><Film className="w-4 h-4 text-emerald-600" />Video hoàn chỉnh{seq.finalVideo.duration ? ` (${seq.finalVideo.duration.toFixed(1)}s)` : ""}</h2>
             <div className="flex items-center gap-2">
-              <Link href={`/videos/${seq.finalVideo.id}`} className="inline-flex items-center gap-1.5 text-xs font-medium text-slate-600 hover:text-slate-900"><ExternalLink className="w-3.5 h-3.5" />Trong thư viện</Link>
+              <Link href={`/videos/${seq.finalVideo.id}`} className="inline-flex items-center gap-1.5 text-xs font-medium text-slate-600 hover:text-slate-900"><Send className="w-3.5 h-3.5" />Đăng bài</Link>
               <a href={`/api/videos/${seq.finalVideo.id}/file?download=true`} className="inline-flex items-center gap-1.5 text-xs font-semibold text-white bg-emerald-600 hover:bg-emerald-700 px-3 py-1.5 rounded-lg"><Download className="w-3.5 h-3.5" />Tải về</a>
             </div>
           </div>
@@ -385,64 +331,33 @@ export default function SequenceDetailClient({ initial }: { initial: SequenceDat
 
       {/* Scenes */}
       <div className="space-y-3">
-        <div className="flex items-center justify-between">
-          <h2 className="text-sm font-bold text-slate-900">Danh sách cảnh</h2>
-          {dirtyCount > 0 && (
-            <button type="button" onClick={async () => { if (await saveAllDrafts()) { success("Đã lưu prompt."); refresh(); } }}
-              className="inline-flex items-center gap-1.5 text-xs font-semibold text-white bg-slate-900 hover:bg-slate-800 px-3 py-1.5 rounded-lg">
-              <Save className="w-3.5 h-3.5" />Lưu {dirtyCount} thay đổi
-            </button>
-          )}
+        <div>
+          <h2 className="text-sm font-bold text-slate-900">Các clip</h2>
+          <p className="text-[11px] text-slate-500 mt-1">Prompt từng clip do Flow Agent viết, hiện sau khi chạy. Clip lỗi: bấm "Khôi phục clip từ Flow" hoặc Import thủ công vào đúng cảnh.</p>
         </div>
 
-        {seq.scenes.map((scene, i) => {
-          const locked = IN_FLIGHT.includes(scene.status);
-          const value = drafts[scene.id] ?? scene.prompt;
-          return (
-            <div key={scene.id} className="bg-white border border-slate-200/90 rounded-2xl p-4 sm:p-5 shadow-sm">
-              <div className="flex items-center justify-between gap-3 mb-3 flex-wrap">
-                <div className="flex items-center gap-2.5">
-                  <span className="w-7 h-7 rounded-lg bg-slate-900 text-white text-xs font-bold flex items-center justify-center">{(scene.sceneIndex ?? i) + 1}</span>
-                  <StatusBadge status={scene.status} />
-                </div>
-                <div className="flex items-center gap-2">
-                  <Link href={`/generations/${scene.id}`} className="text-[11px] text-slate-500 hover:text-slate-800 inline-flex items-center gap-1"><ExternalLink className="w-3 h-3" />Nhật ký / Import thủ công</Link>
-                  {!locked && !active && (scene.status === "FAILED" || scene.status === "NEEDS_USER_ACTION" || scene.status === "COMPLETED" || scene.status === "DRAFT" || scene.status === "CANCELLED") && seq.status !== "PLANNED" && (
-                    <button type="button" onClick={() => handleStart([scene.id])} disabled={busy !== null}
-                      className="inline-flex items-center gap-1 text-[11px] font-semibold text-emerald-700 hover:bg-emerald-50 border border-emerald-200 px-2.5 py-1 rounded-lg disabled:opacity-50">
-                      <RefreshCw className="w-3 h-3" />{scene.status === "COMPLETED" ? "Render lại" : "Chạy lại cảnh"}
-                    </button>
-                  )}
-                </div>
+        {seq.scenes.map((scene, i) => (
+          <div key={scene.id} className="bg-white border border-slate-200/90 rounded-2xl p-4 sm:p-5 shadow-sm">
+            <div className="flex items-center justify-between gap-3 mb-3 flex-wrap">
+              <div className="flex items-center gap-2.5">
+                <span className="w-7 h-7 rounded-lg bg-slate-900 text-white text-xs font-bold flex items-center justify-center">{(scene.sceneIndex ?? i) + 1}</span>
+                <StatusBadge status={scene.status} />
               </div>
+              <Link href={`/generations/${scene.id}`} className="text-[11px] text-slate-500 hover:text-slate-800 inline-flex items-center gap-1"><ExternalLink className="w-3 h-3" />Nhật ký / Import thủ công</Link>
+            </div>
 
-              <div className="grid grid-cols-1 sm:grid-cols-[1fr_auto] gap-4">
-                <textarea
-                  rows={5}
-                  value={value}
-                  disabled={locked}
-                  onChange={(e) => {
-                    const v = e.target.value;
-                    setDrafts((d) => {
-                      const next = { ...d };
-                      if (v === scene.prompt) delete next[scene.id]; else next[scene.id] = v;
-                      return next;
-                    });
-                  }}
-                  className="w-full px-3.5 py-2.5 rounded-xl border border-slate-200 text-[11px] font-mono text-slate-800 focus:outline-none focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-500 bg-slate-50/40 leading-relaxed disabled:opacity-60"
-                />
-                {scene.videoAsset && (
-                  <video src={`/api/videos/${scene.videoAsset.id}/file`} controls preload="metadata"
-                    className="h-40 sm:h-44 rounded-xl bg-black justify-self-start sm:justify-self-end" />
-                )}
-              </div>
-
-              {scene.errorMessage && scene.status === "FAILED" && (
-                <p className="mt-2 text-[11px] text-rose-600 leading-relaxed">{scene.errorMessage}</p>
+            <div className="grid grid-cols-1 sm:grid-cols-[1fr_auto] gap-4">
+              <p className="text-[11px] font-mono text-slate-700 whitespace-pre-wrap leading-relaxed bg-slate-50/60 rounded-xl border border-slate-100 px-3.5 py-2.5 max-h-40 overflow-auto">{scene.prompt}</p>
+              {scene.videoAsset && (
+                <video src={`/api/videos/${scene.videoAsset.id}/file`} controls preload="metadata" className="h-40 sm:h-44 rounded-xl bg-black justify-self-start sm:justify-self-end" />
               )}
             </div>
-          );
-        })}
+
+            {scene.errorMessage && (scene.status === "FAILED" || scene.status === "NEEDS_USER_ACTION") && (
+              <p className="mt-2 text-[11px] text-rose-600 leading-relaxed">{scene.errorMessage}</p>
+            )}
+          </div>
+        ))}
       </div>
     </div>
   );

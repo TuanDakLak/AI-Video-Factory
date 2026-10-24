@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/db";
 import { requireApiUser } from "@/lib/auth/session";
-import { ownsContent, ownsGeneration, ownsGoogleAccount } from "@/lib/auth/ownership";
+import { ownsGeneration } from "@/lib/auth/ownership";
 
 export async function GET(
   req: NextRequest,
@@ -39,7 +39,7 @@ export async function GET(
     });
   } catch (error: any) {
     return NextResponse.json(
-      { error: "Không thể lấy danh sách tiến trình thế hệ." },
+      { error: "Không lấy được nhật ký." },
       { status: 500 }
     );
   }

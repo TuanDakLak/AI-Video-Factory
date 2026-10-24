@@ -2,16 +2,14 @@ import fs from "fs";
 import os from "os";
 import path from "path";
 import { execFileSync, spawnSync } from "child_process";
-import { createSequenceSchema, updateSequenceSchema, startSequenceSchema, automationRequestSchema } from "../lib/validations";
+import { createSequenceSchema, updateSequenceSchema, startSequenceSchema, automationTopicsSchema } from "../lib/validations";
 import { buildAgentBatchPrompt, buildAgentNudge } from "../lib/sequence/agent-prompt";
 import { assertCanSpend, creditLimits } from "../lib/sequence/credit-guard";
-import { presetInputSchema } from "../lib/presets";
-import { assertApiBudget, estimateApiUsd, veoSettings } from "../lib/automation/veo-config";
-import { makeSolidPng } from "../lib/automation/test-png";
+import { channelInputSchema } from "../lib/channels";
 import { readHealthHistory, saveHealthReport } from "../lib/automation/health-store";
 import { notifyWebhook } from "../lib/automation/notify";
-import { composeScenePrompt, planScenes, sceneCountFor } from "../lib/sequence/scene-planner";
-import { TARGET_LUFS, assembleClips, extractLastFrame, probeClip } from "../lib/sequence/assembler";
+import { clipCount } from "../lib/content/script-writer";
+import { TARGET_LUFS, assembleClips, probeClip } from "../lib/sequence/assembler";
 import { checkPublishReadiness, detectAspect } from "../lib/publish/readiness";
 
 function assert(condition: boolean, message: string) {
@@ -30,46 +28,23 @@ function hasFfmpeg(): boolean {
 }
 
 async function run() {
-  console.log("=== SEQUENCE (MULTI-SCENE VIDEO) TESTS ===\n");
+  console.log("=== LONG VIDEO TESTS ===\n");
 
-  console.log("--- 1. Scene math & prompt composition ---");
-  assert(sceneCountFor(32, 8) === 4, "32s / 8s clips = 4 scenes");
-  assert(sceneCountFor(35, 10) === 4, "35s / 10s clips rounds up to 4 scenes");
-  assert(sceneCountFor(1, 8) === 1, "never fewer than 1 scene");
+  console.log("--- 1. Clip math & Flow Agent prompt ---");
+  assert(clipCount(30, 10) === 3 && clipCount(90, 10) === 9, "30s / 90s = 3 / 9 clips of 10s");
+  assert(clipCount(1, 8) === 1, "never fewer than 1 clip");
   const ap = buildAgentBatchPrompt({ brief: "Quảng cáo serum", style: "warm", totalDuration: 90, clipSeconds: 10, count: 9, aspectRatio: "9:16", hasReferenceImages: true });
   assert(/exactly 9 consecutive 10-second video clips/.test(ap) && ap.includes("90-second vertical 9:16") && ap.includes("Scene 9") && ap.includes("Quảng cáo serum") && ap.includes("attached image"), "Flow Agent batch prompt asks for N clips, one project, shared references");
   assert(/do NOT ask me any clarifying questions/.test(ap) && /Proceed now/.test(buildAgentNudge(5)) && /đúng 5 video/.test(buildAgentNudge(5)), "Agent prompt forbids questions; nudge text available");
-  const composed = composeScenePrompt("STYLE BIBLE", "A fox runs.", 1, 4, 8);
-  assert(/^Generate exactly ONE video of about 8 seconds/.test(composed) && composed.includes("STYLE BIBLE") && composed.endsWith("A fox runs."), "composed prompt = ONE-video rule + style bible + scene");
-  assert(!/Scene \d+ of \d+/.test(composed), "no multi-scene numbering that would make Flow Agent plan several videos");
-  assert(composeScenePrompt("", "Only scene", 0, 1).endsWith("Only scene") && !composeScenePrompt("", "x", 0, 1).includes("\n\n\n"), "empty style bible adds nothing");
 
-  console.log("\n--- 2. Fallback scene planner (no AI key) ---");
-  const savedKey = process.env.GEMINI_API_KEY;
-  process.env.GEMINI_API_KEY = ""; // not delete: Prisma re-loads .env on connect but never overrides a set variable
-  for (const [brief, total, clip] of [
-    ["Cảnh 1: mở cửa.\nCảnh 2: pha cà phê.\nCảnh 3: khách vào.\nCảnh 4: mỉm cười.", 32, 8],
-    ["Một chú cáo đi trong rừng tuyết. Mặt trời mọc.", 40, 8],
-    ["Single idea only", 16, 8],
-    [Array.from({ length: 9 }, (_, i) => `Cảnh ${i + 1}: việc ${i + 1}`).join("\n"), 24, 8],
-  ] as Array<[string, number, number]>) {
-    const plan = await planScenes({ brief, totalDuration: total, clipSeconds: clip, aspectRatio: "9:16" });
-    assert(plan.scenes.length === sceneCountFor(total, clip), `planner returns exactly ${sceneCountFor(total, clip)} scenes for ${total}s`);
-    assert(plan.scenes.every((s) => s.trim().length > 5 && !s.includes("..")), "every scene has text and no '..' artefacts");
-    assert(plan.usedAI === false && Boolean(plan.warning), "fallback is flagged so the UI can warn the user");
-  }
-  if (savedKey) process.env.GEMINI_API_KEY = savedKey;
-
-  console.log("\n--- 3. Validation ---");
-  assert(createSequenceSchema.safeParse({ projectId: "p", brief: "idea", totalDuration: 32 }).success, "valid sequence input passes");
-  assert(!createSequenceSchema.safeParse({ projectId: "p", totalDuration: 32 }).success, "needs contentId or brief");
-  assert(!createSequenceSchema.safeParse({ projectId: "p", brief: "x", totalDuration: 4 }).success, "total duration < 8s rejected");
-  assert(!createSequenceSchema.safeParse({ projectId: "p", brief: "x", totalDuration: 400 }).success, "total duration > 300s rejected");
-  assert(!createSequenceSchema.safeParse({ projectId: "p", brief: "x", totalDuration: 32, clipSeconds: 2 }).success, "clip length < 4s rejected");
-  const parsed = createSequenceSchema.parse({ projectId: "p", brief: "x", totalDuration: "32" });
-  assert(parsed.totalDuration === 32 && parsed.continuity === "FLOW_AGENT" && parsed.clipSeconds === 10 && parsed.transition === "CUT", "defaults + numeric coercion");
-  assert(createSequenceSchema.safeParse({ projectId: "p", brief: "x", totalDuration: 32, continuity: "LAST_FRAME" }).success, "LAST_FRAME continuity accepted");
-  assert(!createSequenceSchema.safeParse({ projectId: "p", brief: "x", totalDuration: 32, continuity: "MAGIC" }).success, "unknown continuity rejected");
+  console.log("\n--- 2. Validation ---");
+  assert(createSequenceSchema.safeParse({ brief: "idea", totalDuration: 30 }).success && createSequenceSchema.safeParse({ channelId: "c", brief: "idea", totalDuration: 30 }).success, "valid video input passes, channel optional");
+  assert(!createSequenceSchema.safeParse({ totalDuration: 30 }).success && !createSequenceSchema.safeParse({ brief: "   ", totalDuration: 30 }).success, "needs a brief");
+  assert(!createSequenceSchema.safeParse({ brief: "x", totalDuration: 4 }).success, "total duration < 8s rejected");
+  assert(!createSequenceSchema.safeParse({ brief: "x", totalDuration: 400 }).success, "total duration > 300s rejected");
+  assert(!createSequenceSchema.safeParse({ brief: "x", totalDuration: 30, clipSeconds: 2 }).success, "clip length < 4s rejected");
+  const parsed = createSequenceSchema.parse({ brief: "x", totalDuration: "30" });
+  assert(parsed.totalDuration === 30 && parsed.clipSeconds === 10 && parsed.transition === "CUT" && parsed.aspectRatio === "9:16", "defaults + numeric coercion");
   assert(startSequenceSchema.parse({}).mode === "RUN" && startSequenceSchema.safeParse({ mode: "DRYRUN" }).success && startSequenceSchema.safeParse({ mode: "RECOVER", flowProjectUrl: "https://flow.google.com/project/abc-123" }).success, "start modes: RUN default, DRYRUN, RECOVER with project URL");
   assert(!startSequenceSchema.safeParse({ mode: "RECOVER", flowProjectUrl: "https://flow.google.com/" }).success && !startSequenceSchema.safeParse({ mode: "NUKE" }).success, "RECOVER needs a /project/ URL; unknown mode rejected");
   process.env.FLOW_MAX_CREDITS_PER_VIDEO = "100";
@@ -90,7 +65,7 @@ async function run() {
   assert(!updateSequenceSchema.safeParse({ tags: "not-an-array" }).success, "tags must be an array");
   assert(startSequenceSchema.safeParse({ sceneIds: ["a"] }).success && startSequenceSchema.safeParse({}).success, "start accepts optional sceneIds");
 
-  console.log("\n--- 4. ffmpeg assembly ---");
+  console.log("\n--- 3. ffmpeg assembly ---");
   if (!hasFfmpeg()) {
     console.log("⚠️  ffmpeg/ffprobe not found in PATH: skipping assembly tests (install ffmpeg or set FFMPEG_PATH/FFPROBE_PATH)");
   } else {
@@ -145,13 +120,10 @@ async function run() {
     const aDur = parseFloat(streams.find((s: any) => s.codec_type === "audio").duration);
     assert(Math.abs(vDur - 8) < 0.2 && Math.abs(aDur - vDur) < 0.1, `audio padded to the picture: video ${vDur.toFixed(2)}s, audio ${aDur.toFixed(2)}s`);
 
-    const png = await extractLastFrame(a, path.join(dir, "last.png"));
-    assert(fs.existsSync(png) && fs.statSync(png).size > 1024, "last frame extracted as a non-empty PNG");
-
     fs.rmSync(dir, { recursive: true, force: true });
   }
 
-  console.log("\n--- 5. Publish readiness ---");
+  console.log("\n--- 4. Publish readiness ---");
   assert(detectAspect(720, 1280) === "9:16" && detectAspect(1080, 1080) === "1:1" && detectAspect(1920, 1080) === "16:9", "aspect detection");
   const good = checkPublishReadiness({ duration: 32, width: 1080, height: 1920, fileSize: 20e6, mimeType: "video/mp4" });
   assert(good.every((c) => c.level === "ok"), "32s 1080x1920 mp4 is OK everywhere");
@@ -164,16 +136,16 @@ async function run() {
   assert(low.every((c) => c.level === "warn"), "low resolution only warns");
   assert(checkPublishReadiness({ duration: 20, width: 1080, height: 1920, fileSize: 5e6, mimeType: "video/webm" }).every((c) => c.level === "fail"), "non-MP4 container fails");
 
-  console.log("\n--- 6. Presets, automation, Veo API budget, health store ---");
+  console.log("\n--- 5. Channels, automation API, health store ---");
   const cwd0 = process.cwd();
   const tmpWork = fs.mkdtempSync(path.join(os.tmpdir(), "preset-test-"));
   process.chdir(tmpWork);
   try {
     // channels now live in the database: CRUD + isolation are covered by src/tests/automation.test.ts
-    const pr = presetInputSchema.parse({ name: "Kênh Amazon", styleBible: "cinematic jungle", hashtags: ["#amazon"] });
-    assert(pr.clipSeconds === 10 && pr.continuity === "FLOW_AGENT" && pr.aspectRatio === "9:16" && pr.durations[0] === 30, "channel defaults (10s clips, Flow Agent, 9:16, 30s videos)");
-    assert(!presetInputSchema.safeParse({ name: "   " }).success, "empty channel name rejected");
-    assert(!presetInputSchema.safeParse({ name: "x", durations: [45] }).success, "video length must be 30/60/90s");
+    const pr = channelInputSchema.parse({ name: "Kênh Amazon", styleBible: "cinematic jungle", hashtags: ["#amazon"] });
+    assert(pr.clipSeconds === 10 && pr.aspectRatio === "9:16" && pr.durations[0] === 30, "channel defaults (10s clips, 9:16, 30s videos)");
+    assert(!channelInputSchema.safeParse({ name: "   " }).success, "empty channel name rejected");
+    assert(!channelInputSchema.safeParse({ name: "x", durations: [45] }).success, "video length must be 30/60/90s");
 
     saveHealthReport({ at: "t", accountId: "a", accountName: "n", ok: false, credits: 5, items: [{ name: "login", ok: false, detail: "x" }] });
     assert(readHealthHistory()[0]?.items[0].name === "login", "health report is persisted (newest first)");
@@ -181,24 +153,12 @@ async function run() {
     process.chdir(cwd0);
     fs.rmSync(tmpWork, { recursive: true, force: true });
   }
-  assert(automationRequestSchema.safeParse({ topic: "Siêu đại chiến chiến binh châu Á" }).success && automationRequestSchema.parse({ topic: "abc d" }).autostart === true, "automation: one topic, autostart by default");
-  assert(automationRequestSchema.safeParse({ topics: ["chủ đề một", "chủ đề hai"], totalDuration: 30 }).success && !automationRequestSchema.safeParse({}).success, "automation: topics[] accepted, empty rejected");
-  process.env.VEO_API_USD_PER_SECOND = "0.10";
-  assert(estimateApiUsd(12) === 9.6, "Veo API: 12 clips × 8s × 0.10 = 9.60 USD");
-  delete process.env.GEMINI_API_KEY; delete process.env.VEO_API_KEY;
-  let noKey = false;
-  try { await assertApiBudget(1); } catch (e: any) { noKey = /GEMINI_API_KEY/.test(e.message); }
-  assert(noKey, "Veo API refuses without an API key");
-  process.env.VEO_API_KEY = "k"; process.env.VEO_API_MAX_USD_PER_VIDEO = "5";
-  let capApi = false;
-  try { await assertApiBudget(9.6); } catch (e: any) { capApi = /vượt trần/.test(e.message); }
-  assert(capApi && veoSettings().maxUsdPerVideo === 5, "Veo API per-video USD cap enforced");
-  const png = makeSolidPng(8, 8, [1, 2, 3]);
-  assert(png.subarray(1, 4).toString() === "PNG" && png.length > 40, "test PNG generator output looks like a PNG");
+  assert(automationTopicsSchema.safeParse({ channelId: "c", topics: [{ title: "Siêu đại chiến chiến binh châu Á" }] }).success && automationTopicsSchema.parse({ channelId: "c", topics: [{ title: "abc d" }] }).approved === false, "automation API: topics go to the inbox, not approved by default");
+  assert(!automationTopicsSchema.safeParse({ channelId: "c", topics: [] }).success && !automationTopicsSchema.safeParse({ topics: [{ title: "abc d" }] }).success, "automation API: needs a channel and at least one topic");
   await notifyWebhook("test.event", {});
   assert(true, "webhook is a silent no-op without AUTOMATION_WEBHOOK_URL");
 
-  console.log("\n🎉 ALL SEQUENCE TESTS PASSED");
+  console.log("\n🎉 ALL LONG VIDEO TESTS PASSED");
 }
 
 run().catch((e) => {

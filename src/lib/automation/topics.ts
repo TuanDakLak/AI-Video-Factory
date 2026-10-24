@@ -3,7 +3,7 @@ import { prisma } from "@/lib/db";
 import { SequenceService } from "@/lib/sequence/sequence-service";
 import { CREDITS_SPENT_EVENT, startOfLocalDay } from "@/lib/sequence/credit-guard";
 import { notifyWebhook } from "@/lib/automation/notify";
-import { toPreset } from "@/lib/presets";
+import { toChannel } from "@/lib/channels";
 import { GENRE_KEYS, GenreKey } from "@/lib/content/genres";
 import { clipCount, scriptToBrief, writeScript } from "@/lib/content/script-writer";
 import { AGENT_CREDITS_PER_CLIP } from "@/lib/sequence/agent-prompt";
@@ -117,19 +117,6 @@ export async function addTopic(channel: Channel, t: NewTopic): Promise<AddTopicR
 
 // ---------------------------------------------------------------- production
 
-/** Every channel files its videos under its own project (created on first use). */
-async function ensureChannelProject(channel: Channel): Promise<string> {
-  if (channel.projectId) {
-    const p = await prisma.project.findFirst({ where: { id: channel.projectId, ownerId: channel.ownerId }, select: { id: true } });
-    if (p) return p.id;
-  }
-  const p = await prisma.project.create({
-    data: { ownerId: channel.ownerId, name: `Kênh: ${channel.name}`, topic: channel.niche || channel.name, description: "Video do hệ thống tự động tạo cho kênh." },
-  });
-  await prisma.channel.update({ where: { id: channel.id }, data: { projectId: p.id } });
-  return p.id;
-}
-
 async function hasConnectedAccount(channel: Channel): Promise<boolean> {
   return !!(await prisma.googleAccount.findFirst({
     where: { ownerId: channel.ownerId, status: "CONNECTED", ...(channel.googleAccountId ? { id: channel.googleAccountId } : {}) },
@@ -149,7 +136,7 @@ export async function produceTopic(topicId: string): Promise<Topic> {
   if (claim.count === 0) throw new Error("Chủ đề đang được xử lý.");
 
   try {
-    const preset = toPreset(channel);
+    const ch = toChannel(channel);
     const script = await writeScript({
       topic: topic.title,
       angle: topic.angle,
@@ -160,22 +147,19 @@ export async function produceTopic(topicId: string): Promise<Topic> {
       channelName: channel.name,
       niche: channel.niche,
       styleBible: channel.styleBible,
-      hashtags: preset.hashtags,
+      hashtags: ch.hashtags,
     });
-    const projectId = await ensureChannelProject(channel);
     const n = clipCount(topic.durationSec, channel.clipSeconds);
     const { sequence } = await SequenceService.create(
       {
-        projectId,
+        channelId: channel.id,
         title: script.title,
         brief: scriptToBrief(script, topic.genre, channel.language),
         totalDuration: n * channel.clipSeconds,
         clipSeconds: channel.clipSeconds,
-        aspectRatio: preset.aspectRatio,
+        aspectRatio: ch.aspectRatio,
         model: channel.model,
-        transition: preset.transition,
-        continuity: "FLOW_AGENT",
-        presetId: channel.id,
+        transition: ch.transition,
         googleAccountId: channel.googleAccountId ?? undefined,
         language: channel.language,
         genre: topic.genre,
@@ -220,7 +204,7 @@ async function creditsSpentOn(sequenceId: string): Promise<number> {
  *  - credits were spent (clips probably exist in Flow) -> "recover clips from Flow" (0 credit, once), never re-render.
  * Returns a note, or null when the topic must be marked FAILED.
  */
-async function autoHeal(t: Topic & { sequence: { id: string; continuity: string; errorMessage: string | null } }): Promise<string | null> {
+async function autoHeal(t: Topic & { sequence: { id: string; errorMessage: string | null } }): Promise<string | null> {
   const spent = await creditsSpentOn(t.sequence.id);
   try {
     if (spent === 0 && t.autoRetries < MAX_AUTO_RETRIES) {
@@ -228,7 +212,7 @@ async function autoHeal(t: Topic & { sequence: { id: string; continuity: string;
       await SequenceService.start(t.sequence.id);
       return `Tự chạy lại lần ${t.autoRetries + 1} (lỗi xảy ra trước khi tốn credit): ${t.sequence.errorMessage || ""}`.trim();
     }
-    if (spent > 0 && !t.autoRecovered && t.sequence.continuity === "FLOW_AGENT") {
+    if (spent > 0 && !t.autoRecovered) {
       await prisma.topic.update({ where: { id: t.id }, data: { autoRecovered: true } });
       await SequenceService.start(t.sequence.id, { mode: "RECOVER" });
       return `Đã tốn ${spent} credit: đang tự khôi phục clip từ project Flow (0 credit) thay vì render lại.`;
@@ -243,7 +227,7 @@ async function autoHeal(t: Topic & { sequence: { id: string; continuity: string;
 async function syncProducing(): Promise<void> {
   const producing = await prisma.topic.findMany({
     where: { status: "PRODUCING", sequenceId: { not: null } },
-    include: { sequence: { select: { id: true, status: true, continuity: true, errorMessage: true, finalVideo: { select: { id: true } } } } },
+    include: { sequence: { select: { id: true, status: true, errorMessage: true, finalVideo: { select: { id: true } } } } },
   });
   for (const t of producing) {
     const s = t.sequence;

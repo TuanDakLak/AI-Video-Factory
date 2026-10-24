@@ -5,14 +5,13 @@ import { GENERATION_QUEUE_NAME, GenerationJobData } from "../lib/queue/generatio
 import { FlowAutomationService } from "../lib/automation/FlowAutomationService";
 import { prisma } from "../lib/db";
 import { SequenceService } from "../lib/sequence/sequence-service";
-import { VeoApiService } from "../lib/automation/veo-api";
 import { notifyWebhook } from "../lib/automation/notify";
 import { automationTick } from "../lib/automation/scheduler";
 import { accountDueForHealthCheck, reconcileOrphans, releaseAllLocks } from "../lib/automation/reliability";
 import { publishTick } from "../lib/publish/publisher";
 
 console.log("==================================================");
-console.log("🚀 Google Flow Automation Worker (Phase 3)");
+console.log("🚀 AI Video Factory worker: Flow renders, scheduler, publishing");
 console.log("Max Concurrent Jobs: 1");
 console.log(`Listening on Queue: ${GENERATION_QUEUE_NAME}`);
 console.log("==================================================");
@@ -30,7 +29,6 @@ export const flowWorker = new Worker<GenerationJobData>(
     for (let i = 0; i < 60 && healthRunning; i++) await new Promise((r) => setTimeout(r, 3000));
     jobsRunning++;
     try {
-    
     console.log(`\n[Worker] Picking Job ${job.id} | Generation: ${generationId} | Account: ${googleAccountId}`);
     console.log(`[Worker] Model: ${model}`);
     console.log(`[Worker] Prompt: "${prompt.slice(0, 60)}..."`);
@@ -45,7 +43,7 @@ export const flowWorker = new Worker<GenerationJobData>(
       throw new Error(`Generation ${generationId} not found in database.`);
     }
 
-    // A scene of a multi-scene sequence: if the sequence was paused (an earlier scene failed), don't spend credits.
+    // The video was paused or stopped meanwhile: don't spend credits.
     if (gen.sequenceId && mode === "RUN") {
       const seq = await prisma.sequence.findUnique({ where: { id: gen.sequenceId }, select: { status: true } });
       if (seq && seq.status !== "RUNNING") {
@@ -67,9 +65,7 @@ export const flowWorker = new Worker<GenerationJobData>(
       result =
         mode === "RECOVER"
           ? await FlowAutomationService.recoverSequenceClips(generationId, progress, job.data.flowProjectUrl)
-          : gen.provider === "VEO_API"
-            ? await VeoApiService.executeGeneration(generationId, progress)
-            : await FlowAutomationService.executeGeneration(generationId, progress, { mode });
+          : await FlowAutomationService.executeGeneration(generationId, progress, { mode });
     } catch (err: any) {
       // executeGeneration threw before it could record a failure (e.g. account busy / idempotency guard)
       const current = await prisma.generation.findUnique({ where: { id: generationId }, select: { status: true } });

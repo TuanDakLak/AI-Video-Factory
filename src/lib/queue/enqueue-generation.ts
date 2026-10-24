@@ -2,8 +2,7 @@ import { prisma } from "@/lib/db";
 import { enqueueGenerationJob } from "./generation-queue";
 
 /**
- * Put one existing Generation into the Flow automation queue.
- * Same behaviour as POST /api/generations/[id]/start-auto, reusable from server code (sequences).
+ * Put one existing Generation (the lead scene of a video) into the Flow automation queue.
  * Throws an Error with a user-facing message when it cannot be queued.
  */
 export async function enqueueGenerationById(
@@ -14,27 +13,22 @@ export async function enqueueGenerationById(
   const generation = await prisma.generation.findUnique({ where: { id: generationId }, include: { project: { select: { ownerId: true } } } });
   if (!generation) throw new Error("Không tìm thấy generation job này.");
 
-  // Veo API generations need no Google account / browser
-  const isApi = generation.provider === "VEO_API";
   const accountId = googleAccountId || generation.googleAccountId || null;
-  let accountName = "Veo API";
-  if (!isApi) {
-    if (!accountId) throw new Error("Chưa chọn tài khoản Google cho tác vụ này.");
-    const account = await prisma.googleAccount.findUnique({ where: { id: accountId } });
-    // same owner as the project: one user's job must never run on another user's Google session / credits
-    if (!account || !account.ownerId || account.ownerId !== generation.project.ownerId) throw new Error("Tài khoản Google đã chọn không tồn tại.");
-    if (account.status !== "CONNECTED") {
-      throw new Error(`Tài khoản ${account.name} chưa kết nối Google Flow (${account.status}). Vào Cài Đặt để kết nối trước.`);
-    }
-    accountName = account.name;
+  if (!accountId) throw new Error("Chưa chọn tài khoản Google cho tác vụ này.");
+  const account = await prisma.googleAccount.findUnique({ where: { id: accountId } });
+  // same owner as the project: one user's job must never run on another user's Google session / credits
+  if (!account || !account.ownerId || account.ownerId !== generation.project.ownerId) throw new Error("Tài khoản Google đã chọn không tồn tại.");
+  if (account.status !== "CONNECTED") {
+    throw new Error(`Tài khoản ${account.name} chưa kết nối Google Flow (${account.status}). Vào Cài Đặt để kết nối trước.`);
   }
+  const accountName = account.name;
 
   const idempotencyKey = `flow_gen_${generationId}_${Date.now()}`;
 
   await prisma.generation.update({
     where: { id: generationId },
     data: {
-      ...(accountId ? { googleAccountId: accountId } : {}),
+      googleAccountId: accountId,
       status: "QUEUED",
       generationMethod: "AUTO",
       idempotencyKey,
@@ -55,7 +49,7 @@ export async function enqueueGenerationById(
   await enqueueGenerationJob({
     generationId,
     projectId: generation.projectId,
-    googleAccountId: accountId || "",
+    googleAccountId: accountId,
     prompt: generation.prompt,
     model: generation.model,
     aspectRatio: generation.aspectRatio,

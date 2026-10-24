@@ -33,7 +33,6 @@ interface VideoPlayerModalProps {
       prompt: string;
       model: string;
       aspectRatio: string;
-      content?: { id: string; title: string } | null;
       googleAccount?: { id: string; name: string; label: string } | null;
     } | null;
   } | null;
@@ -74,7 +73,7 @@ export function VideoPlayerModal({ video, onClose, onDelete }: VideoPlayerModalP
             <div className="min-w-0">
               <h3 className="text-sm font-semibold text-slate-800 truncate">{video.filename}</h3>
               <p className="text-xs text-slate-400 truncate">
-                Dự án: {video.project?.name || "Chưa phân loại"}
+                📁 {video.project?.name || "Chưa phân loại"}
               </p>
             </div>
           </div>

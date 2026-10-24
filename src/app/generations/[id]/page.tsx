@@ -23,7 +23,6 @@ export default async function GenerationDetailPage({
       where: { id, ...generationsOf(user.id) },
       include: {
         project: true,
-        content: true,
         googleAccount: true,
         videoAsset: true,
         events: { orderBy: { createdAt: "asc" } },
@@ -40,11 +39,11 @@ export default async function GenerationDetailPage({
   return (
     <div className="p-8 max-w-5xl mx-auto w-full space-y-6">
       <Link
-        href={`/projects/${generation.projectId}`}
+        href={generation.sequenceId ? `/sequences/${generation.sequenceId}` : "/videos"}
         className="inline-flex items-center gap-2 text-xs font-medium text-slate-500 hover:text-slate-800 transition-colors"
       >
         <ArrowLeft className="w-3.5 h-3.5" />
-        <span>Quay lại dự án: {generation.project.name}</span>
+        <span>{generation.sequenceId ? "Quay lại video" : "Quay lại thư viện"}</span>
       </Link>
 
       <GenerationDetailClient generation={generation as any} />

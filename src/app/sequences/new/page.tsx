@@ -4,29 +4,20 @@ import { ArrowLeft } from "lucide-react";
 import { prisma } from "@/lib/db";
 import NewSequenceForm from "@/components/sequences/NewSequenceForm";
 import { requirePageUser } from "@/lib/auth/session";
-import { contentsOf, googleAccountsOf, projectsOf } from "@/lib/auth/ownership";
+import { googleAccountsOf } from "@/lib/auth/ownership";
+import { listChannels } from "@/lib/channels";
 
 export const dynamic = "force-dynamic";
 
-export default async function NewSequencePage({
-  searchParams,
-}: {
-  searchParams: Promise<{ projectId?: string; contentId?: string }>;
-}) {
+export default async function NewSequencePage({ searchParams }: { searchParams: Promise<{ channelId?: string }> }) {
   const user = await requirePageUser();
-  const { projectId, contentId } = await searchParams;
+  const { channelId } = await searchParams;
 
-  let projects: Array<{ id: string; name: string }> = [];
-  let contents: any[] = [];
-  let googleAccounts: any[] = [];
+  let channels: Awaited<ReturnType<typeof listChannels>> = [];
+  let googleAccounts: Array<{ id: string; name: string; status: string; lastKnownFlowCredits: number | null }> = [];
   try {
-    [projects, contents, googleAccounts] = await Promise.all([
-      prisma.project.findMany({ where: projectsOf(user.id), orderBy: { createdAt: "desc" }, select: { id: true, name: true } }),
-      prisma.content.findMany({
-        where: contentsOf(user.id),
-        orderBy: { createdAt: "desc" },
-        select: { id: true, projectId: true, title: true, aspectRatio: true, duration: true },
-      }),
+    [channels, googleAccounts] = await Promise.all([
+      listChannels(user.id),
       prisma.googleAccount.findMany({
         where: googleAccountsOf(user.id),
         orderBy: { createdAt: "asc" },
@@ -34,24 +25,28 @@ export default async function NewSequencePage({
       }),
     ]);
   } catch (error) {
-    console.error("Fetch data for sequence form error:", error);
+    console.error("Fetch data for video form error:", error);
   }
 
   return (
-    <div className="p-8 max-w-7xl mx-auto w-full space-y-6">
-      <Link
-        href={projectId ? `/projects/${projectId}` : "/sequences"}
-        className="inline-flex items-center gap-2 text-xs font-medium text-slate-500 hover:text-slate-800 transition-colors"
-      >
+    <div className="p-8 max-w-4xl mx-auto w-full space-y-6">
+      <Link href="/sequences" className="inline-flex items-center gap-2 text-xs font-medium text-slate-500 hover:text-slate-800 transition-colors">
         <ArrowLeft className="w-3.5 h-3.5" />
         <span>Quay lại</span>
       </Link>
       <NewSequenceForm
-        projects={projects}
-        contents={contents}
+        channels={channels.map((c) => ({
+          id: c.id,
+          name: c.name,
+          aspectRatio: c.aspectRatio,
+          model: c.model,
+          clipSeconds: c.clipSeconds,
+          transition: c.transition,
+          refCount: c.referenceImageKeys.length,
+          googleAccountId: c.googleAccountId,
+        }))}
         googleAccounts={googleAccounts}
-        initialProjectId={projectId}
-        initialContentId={contentId}
+        initialChannelId={channelId}
       />
     </div>
   );

@@ -6,8 +6,8 @@ import { AuthFetchGuard } from "@/components/auth/AuthFetchGuard";
 import { getSessionUser } from "@/lib/auth/session";
 
 export const metadata: Metadata = {
-  title: "AI Content Factory",
-  description: "Internal AI Video Production & Content Management Studio",
+  title: "AI Video Factory",
+  description: "Long videos from Google Flow clips: topics, scripts, rendering, assembly and publishing",
 };
 
 export default async function RootLayout({

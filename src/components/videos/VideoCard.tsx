@@ -21,7 +21,6 @@ export interface VideoItem {
     model: string;
     aspectRatio: string;
     duration?: string;
-    content?: { id: string; title: string } | null;
     googleAccount?: { id: string; name: string; label: string } | null;
   } | null;
 }
@@ -94,12 +93,7 @@ export function VideoCard({ video, onPreview, onDelete }: VideoCardProps) {
           </h4>
 
           {video.project && (
-            <Link
-              href={`/projects/${video.project.id}`}
-              className="inline-block text-xs text-slate-400 hover:text-slate-600 truncate mt-0.5 max-w-full"
-            >
-              📁 {video.project.name}
-            </Link>
+            <span className="inline-block text-xs text-slate-400 truncate mt-0.5 max-w-full">📁 {video.project.name}</span>
           )}
 
           {video.generation?.googleAccount && (

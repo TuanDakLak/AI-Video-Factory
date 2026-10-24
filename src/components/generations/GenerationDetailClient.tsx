@@ -36,8 +36,9 @@ interface GenerationDetailClientProps {
   generation: {
     id: string;
     projectId: string;
-    contentId?: string | null;
     googleAccountId?: string | null;
+    sequenceId?: string | null;
+    sceneIndex?: number | null;
     prompt: string;
     model: string;
     aspectRatio: string;
@@ -52,11 +53,6 @@ interface GenerationDetailClientProps {
       name: string;
       topic: string;
     };
-    content?: {
-      id: string;
-      title: string;
-      concept: string;
-    } | null;
     googleAccount?: {
       id: string;
       name: string;
@@ -83,11 +79,10 @@ const STEP_ORDER = [
 export default function GenerationDetailClient({ generation: initialGen }: GenerationDetailClientProps) {
   const [generation, setGeneration] = useState(initialGen);
   const [events, setEvents] = useState<GenerationEventItem[]>(initialGen.events || []);
-  const [isStartingAuto, setIsStartingAuto] = useState(false);
   const [selectedVideo, setSelectedVideo] = useState<VideoItem | null>(null);
   const [deletingVideoId, setDeletingVideoId] = useState<string | null>(null);
 
-  const { success, error, info } = useToast();
+  useToast();
   const googleFlowUrl = process.env.NEXT_PUBLIC_FLOW_URL || "https://labs.google/fx/tools/flow";
 
   const isProcessing = [
@@ -130,28 +125,6 @@ export default function GenerationDetailClient({ generation: initialGen }: Gener
     return () => clearInterval(interval);
   }, [generation.id, isProcessing]);
 
-  const handleStartAuto = async () => {
-    setIsStartingAuto(true);
-    info("Đang khởi động tiến trình Flow Automation...");
-    try {
-      const res = await fetch(`/api/generations/${generation.id}/start-auto`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ googleAccountId: generation.googleAccountId }),
-      });
-      const data = await res.json();
-      if (!res.ok) {
-        throw new Error(data.error || "Không thể khởi động automation.");
-      }
-      setGeneration((prev) => ({ ...prev, status: "QUEUED" }));
-      success(data.message || "Tác vụ đã được đưa vào hàng đợi!");
-    } catch (err: any) {
-      error(err?.message || "Lỗi khởi động.");
-    } finally {
-      setIsStartingAuto(false);
-    }
-  };
-
   // Helper to determine step status
   const currentStepIndex = STEP_ORDER.findIndex((s) => s.key === generation.status);
 
@@ -178,33 +151,16 @@ export default function GenerationDetailClient({ generation: initialGen }: Gener
             </div>
 
             <h1 className="text-xl font-bold text-slate-900 tracking-tight">
-              Chi Tiết Lệnh Tạo Video (Generation Job)
+              {generation.sequenceId ? `Cảnh ${(generation.sceneIndex ?? 0) + 1}: nhật ký & import thủ công` : "Nhật ký tạo video"}
             </h1>
 
             <div className="flex items-center gap-3 text-xs text-slate-500 flex-wrap">
-              <span>
-                Dự án:{" "}
-                <Link
-                  href={`/projects/${generation.projectId}`}
-                  className="text-emerald-700 font-medium hover:underline"
-                >
-                  {generation.project.name}
+              {generation.sequenceId ? (
+                <Link href={`/sequences/${generation.sequenceId}`} className="text-emerald-700 font-medium hover:underline">
+                  ← Video của cảnh này
                 </Link>
-              </span>
-
-              {generation.content && (
-                <>
-                  <span>•</span>
-                  <span>
-                    Kịch bản liên kết:{" "}
-                    <Link
-                      href={`/contents/${generation.content.id}`}
-                      className="text-indigo-700 font-medium hover:underline"
-                    >
-                      {generation.content.title}
-                    </Link>
-                  </span>
-                </>
+              ) : (
+                <span>📁 {generation.project.name}</span>
               )}
             </div>
           </div>
@@ -227,21 +183,6 @@ export default function GenerationDetailClient({ generation: initialGen }: Gener
               </button>
             )}
 
-            {!isProcessing && generation.status !== "COMPLETED" && (
-              <button
-                type="button"
-                disabled={isStartingAuto}
-                onClick={handleStartAuto}
-                className="inline-flex items-center gap-2 bg-sky-600 hover:bg-sky-700 text-white text-xs font-semibold px-4 py-2.5 rounded-xl shadow-sm transition-all disabled:opacity-50"
-              >
-                {isStartingAuto ? (
-                  <Loader2 className="w-3.5 h-3.5 animate-spin" />
-                ) : (
-                  <Bot className="w-3.5 h-3.5" />
-                )}
-                <span>Chạy Tự Động Flow Worker</span>
-              </button>
-            )}
           </div>
         </div>
 

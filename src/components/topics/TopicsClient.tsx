@@ -93,7 +93,7 @@ export default function TopicsClient({ channels }: { channels: ChannelLite[] }) 
     if (!current) return;
     setResearching(true);
     try {
-      const res = await fetch(`/api/presets/${current.id}/research`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ count: 5 }) });
+      const res = await fetch(`/api/channels/${current.id}/research`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ count: 5 }) });
       const data = await res.json().catch(() => ({}));
       if (data.note) setResearchNote((n) => ({ ...n, [current.id]: data.note }));
       if (res.ok) success(data.note);
@@ -171,7 +171,7 @@ export default function TopicsClient({ channels }: { channels: ChannelLite[] }) 
     return (
       <div className="bg-white border border-dashed border-slate-200 rounded-2xl p-8 text-center text-xs text-slate-500 space-y-2">
         <p>Chưa có kênh nào. Chủ đề luôn thuộc về một kênh (phong cách, ngôn ngữ, lịch sản xuất).</p>
-        <Link href="/presets" className="inline-block text-emerald-700 font-semibold hover:underline">Tạo kênh đầu tiên →</Link>
+        <Link href="/channels" className="inline-block text-emerald-700 font-semibold hover:underline">Tạo kênh đầu tiên →</Link>
       </div>
     );
   }

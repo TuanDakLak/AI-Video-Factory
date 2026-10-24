@@ -14,11 +14,9 @@ import {
   countApprovalCards,
   readApprovalRequest,
   answerApproval,
-  listVideoSources,
   listVideoTileIds,
   listVideoTilePositions,
   countErrorTiles,
-  downloadTileVideo,
   downloadFromEditor,
   openTileAndReadPrompt,
   dumpDiagnostics,
@@ -27,9 +25,8 @@ import {
 } from "./flow-dom";
 import { buildAgentBatchPrompt, buildAgentNudge } from "@/lib/sequence/agent-prompt";
 import { assertCanSpend, recordCreditsSpent } from "@/lib/sequence/credit-guard";
-import { resolveSceneAttachments } from "../sequence/attachments";
+import { sequenceReferenceImages } from "../sequence/attachments";
 import { HealthCheckItem, HealthReport, saveHealthReport } from "./health-store";
-import { makeSolidPng } from "./test-png";
 
 /** A Flow project page, e.g. https://flow.google.com/project/<uuid> */
 const PROJECT_PAGE_RE = /\/project\/[^/?#]+/i;
@@ -497,56 +494,6 @@ export class FlowAutomationService {
   }
 
   /**
-   * Attach self-test (spends NO credits, submits nothing): opens the newest known project, attaches a tiny generated PNG to the Agent
-   * composer through the real "+" picker and reports whether Flow accepted it. This is how the reference-image path is verified on
-   * YOUR machine (npm run flow:attach-test) before relying on it for unattended runs.
-   */
-  public static async attachSelfTest(googleAccountId?: string): Promise<{ ok: boolean; detail: string; screenshot?: string }> {
-    const account = googleAccountId
-      ? await prisma.googleAccount.findUnique({ where: { id: googleAccountId } })
-      : await prisma.googleAccount.findFirst({ where: { status: "CONNECTED" }, orderBy: { updatedAt: "desc" } });
-    if (!account) throw new Error("Chưa có tài khoản Google nào để kiểm tra.");
-    if (account.lockStatus === "IN_USE") throw new Error(`Tài khoản ${account.name} đang bận.`);
-    const known = await prisma.generation.findFirst({
-      where: { googleAccountId: account.id, flowProjectId: { contains: "/project/" } },
-      orderBy: { updatedAt: "desc" },
-      select: { flowProjectId: true },
-    });
-    if (!known?.flowProjectId) throw new Error("Chưa có dự án Flow nào đã lưu: chạy 1 video trước rồi kiểm tra lại.");
-
-    await prisma.googleAccount.update({ where: { id: account.id }, data: { lockStatus: "IN_USE" } });
-    let context: BrowserContext | null = null;
-    let page: Page | undefined;
-    const tmp = path.resolve(process.cwd(), "tmp", "attach-selftest");
-    fs.mkdirSync(tmp, { recursive: true });
-    try {
-      const png = path.join(tmp, `selftest_${Date.now()}.png`);
-      fs.writeFileSync(png, makeSolidPng(96, 96, [200, 120, 60]));
-      context = await this.launchContext(account.profileDir, this.isHeadless());
-      page = context.pages()[0] || (await context.newPage());
-      await page.goto(known.flowProjectId, { waitUntil: "domcontentloaded", timeout: 45000 });
-      await page.waitForTimeout(4000);
-      await startNewAgentSession(page);
-      const box = await findPromptBox(page, 15000);
-      if (!box.found) return { ok: false, detail: "Không thấy ô nhập prompt trong dự án Flow." };
-      await attachFiles(page, [png]);
-      return { ok: true, detail: "Đính kèm ảnh thành công qua hộp chọn thành phần của Flow (chưa gửi gì, không tốn credit)." };
-    } catch (err: any) {
-      const dir = path.resolve(process.cwd(), "data", "flow-debug");
-      fs.mkdirSync(dir, { recursive: true });
-      const shot = path.join(dir, `attach-selftest-${Date.now()}.png`);
-      const saved = page ? await page.screenshot({ path: shot }).then(() => shot).catch(() => undefined) : undefined;
-      return { ok: false, detail: err?.message || String(err), screenshot: saved };
-    } finally {
-      await prisma.googleAccount.update({ where: { id: account.id }, data: { lockStatus: "AVAILABLE" } }).catch(() => {});
-      if (context) await context.close().catch(() => {});
-      try {
-        fs.rmSync(tmp, { recursive: true, force: true });
-      } catch {}
-    }
-  }
-
-  /**
    * Download the clips of a Flow project and match them to scenes (0 credits). Every finished tile is opened in the Flow editor,
    * whose history panel shows the prompt the clip was made from ("Scene 3. ..."), and the ORIGINAL 720p file is downloaded there.
    * Tiles are scanned in grid order (newest first), so when a scene was re-generated the newest clip wins.
@@ -786,6 +733,11 @@ export class FlowAutomationService {
       throw new Error("Ngừng xử lý vì task đã được thực thi một phần trước khi bị gián đoạn (Idempotency Protection).");
     }
 
+    const seq = generation.sequence;
+    if (!seq || seq.continuity !== "FLOW_AGENT" || (generation.sceneIndex ?? 0) !== 0) {
+      throw new Error("Chỉ cảnh đầu của một video Flow Agent mới chạy tự động được (chế độ từng cảnh riêng đã bỏ: dùng Import thủ công).");
+    }
+
     const account = generation.googleAccount;
     // tenant isolation, last line of defence: never run one user's job with another user's Google session / credits
     if (!account.ownerId || account.ownerId !== generation.project.ownerId) {
@@ -821,17 +773,13 @@ export class FlowAutomationService {
       }
     };
 
-    // FLOW_AGENT: the lead scene (index 0) runs ONE Flow Agent batch that makes every clip of the sequence in one project
-    const seq = generation.sequence;
-    const isBatch = !!seq && seq.continuity === "FLOW_AGENT" && (generation.sceneIndex ?? 0) === 0;
-    const batchScenes = isBatch
-      ? await prisma.generation.findMany({
-          where: { sequenceId: seq!.id },
-          orderBy: { sceneIndex: "asc" },
-          select: { id: true, sceneIndex: true, projectId: true, model: true, prompt: true },
-        })
-      : [];
-    const expectedVideos = isBatch ? batchScenes.length : 1;
+    // The lead scene (index 0) runs ONE Flow Agent batch that makes every clip of the sequence in one project
+    const batchScenes = await prisma.generation.findMany({
+      where: { sequenceId: seq.id },
+      orderBy: { sceneIndex: "asc" },
+      select: { id: true, sceneIndex: true, projectId: true, model: true, prompt: true },
+    });
+    const expectedVideos = batchScenes.length;
 
     let context: BrowserContext | null = null;
     let activePage: Page | undefined;
@@ -901,8 +849,7 @@ export class FlowAutomationService {
       const PROJECT_URL_RE = /\/project\/[^/?#]+/i;
       const isProjectUrl = (u: string) => PROJECT_URL_RE.test(u) && !this.isSignedOutUrl(u);
       let reusedProject = false;
-      let sharedProjectMissing = false;
-      if (generation.sequenceId) {
+      {
         const siblings = await prisma.generation.findMany({
           where: { sequenceId: generation.sequenceId, flowProjectId: { not: null } },
           orderBy: { sceneIndex: "asc" },
@@ -931,17 +878,11 @@ export class FlowAutomationService {
           });
           if (reusedProject) break;
         }
-        if (!reusedProject && (generation.sceneIndex ?? 0) > 0) sharedProjectMissing = true;
       }
 
       // --- BYPASS DASHBOARD (NEW PROJECT) ---
       await reportProgress("OPENING_FLOW", "Kiểm tra Dashboard Google Flow...");
       if (!reusedProject && !isProjectUrl(page.url())) {
-        if (sharedProjectMissing) {
-          await prisma.generationEvent.create({
-            data: { generationId, type: "OPENING_FLOW", message: "Chưa có URL dự án Flow của các cảnh trước - tạo dự án mới (clip có thể nằm ở project khác)." },
-          });
-        }
         const newProject = page
           .getByRole("button", { name: /dự án mới|new project/i })
           .first();
@@ -961,9 +902,9 @@ export class FlowAutomationService {
         if (!reusedProject) {
           await prisma.generationEvent.create({ data: { generationId, type: "OPENING_FLOW", message: `Dự án Flow: ${page.url()}` } }).catch(() => {});
         }
-      } else if (generation.sequenceId) {
+      } else {
         await prisma.generationEvent.create({
-          data: { generationId, type: "OPENING_FLOW", message: `Không xác định được URL dự án Flow (đang ở ${page.url()}) - các cảnh sau sẽ không dùng chung project được.` },
+          data: { generationId, type: "OPENING_FLOW", message: `Không xác định được URL dự án Flow (đang ở ${page.url()}) - không khôi phục clip tự động được nếu lần chạy này lỗi.` },
         }).catch(() => {});
       }
 
@@ -980,9 +921,9 @@ export class FlowAutomationService {
         throw new Error("Không tìm thấy ô nhập prompt trên giao diện Google Flow hiện tại.");
       }
 
-      // Continuity images (Ingredients / last frame of the previous scene). Resolved BEFORE any credit is spent;
-      // any failure here aborts the job so the user can switch mode instead of paying for a clip that lost its anchor.
-      const attachments = await resolveSceneAttachments(generationId, tempDir);
+      // Reference images (Ingredients), attached BEFORE any credit is spent: a failure aborts the job instead of paying for clips
+      // that lost their character / product anchor.
+      const attachments = await sequenceReferenceImages(generationId);
       if (attachments.files.length > 0) {
         await prisma.generationEvent.create({ data: { generationId, type: "SUBMITTING", message: attachments.note } });
         await attachFiles(page, attachments.files);
@@ -991,23 +932,19 @@ export class FlowAutomationService {
         if (!again.found) throw new Error("Không tìm thấy ô nhập prompt sau khi đính kèm ảnh.");
       }
 
-      const promptText = isBatch
-        ? buildAgentBatchPrompt({
-            brief: seq!.brief,
-            style: seq!.styleBible,
-            totalDuration: seq!.totalDuration,
-            clipSeconds: seq!.clipSeconds,
-            count: expectedVideos,
-            aspectRatio: seq!.aspectRatio,
-            hasReferenceImages: attachments.files.length > 0,
-            language: seq!.language,
-          })
-        : generation.prompt;
-      if (isBatch) {
-        await prisma.generationEvent.create({
-          data: { generationId, type: "SUBMITTING", message: `Flow Agent sẽ tự chia cảnh: yêu cầu ${expectedVideos} clip × ${seq!.clipSeconds}s trong cùng một project.` },
-        });
-      }
+      const promptText = buildAgentBatchPrompt({
+        brief: seq.brief,
+        style: seq.styleBible,
+        totalDuration: seq.totalDuration,
+        clipSeconds: seq.clipSeconds,
+        count: expectedVideos,
+        aspectRatio: seq.aspectRatio,
+        hasReferenceImages: attachments.files.length > 0,
+        language: seq.language,
+      });
+      await prisma.generationEvent.create({
+        data: { generationId, type: "SUBMITTING", message: `Flow Agent sẽ tự chia cảnh: yêu cầu ${expectedVideos} clip × ${seq.clipSeconds}s trong cùng một project.` },
+      });
 
       await typePrompt(page, promptText);
 
@@ -1023,11 +960,9 @@ export class FlowAutomationService {
       await findPromptBox(page, 5000);
       await typePrompt(page, promptText);
 
-      // Remember videos that already exist so we only accept the NEW result
-      const baselineVideos = new Set(await listVideoSources(page));
+      // Remember videos that already exist so we only accept the NEW results
       const baselineTiles = new Set(await listVideoTileIds(page));
       const baselineErrors = await countErrorTiles(page);
-      let newTileId: string | null = null;
       let batchTileIds: string[] = [];
       // batch: when every requested clip is either finished or failed, wait this long for the Agent to offer a re-generation
       let settledSince = 0;
@@ -1041,7 +976,6 @@ export class FlowAutomationService {
 
       // Wait for generation completion
       let videoElementFound = false;
-      let videoSrc: string | null = null;
       let approved = false;
       let approvals = 0;
       const genStartTime = Date.now();
@@ -1052,12 +986,12 @@ export class FlowAutomationService {
       const maxNudges = parseInt(process.env.FLOW_AGENT_MAX_NUDGES || "", 10) >= 0 ? parseInt(process.env.FLOW_AGENT_MAX_NUDGES!, 10) : 2;
       const idleMs = (parseInt(process.env.FLOW_AGENT_IDLE_SEC || "", 10) || 50) * 1000;
       // Veo Quality can take several minutes: default 8 min, override with FLOW_GENERATION_TIMEOUT_SEC
-      const maxGenWait = dryRun ? 240000 : ((parseInt(process.env.FLOW_GENERATION_TIMEOUT_SEC || "", 10) || 480) + (isBatch ? 180 * expectedVideos : 0)) * 1000;
+      const maxGenWait = dryRun ? 240000 : ((parseInt(process.env.FLOW_GENERATION_TIMEOUT_SEC || "", 10) || 480) + 180 * expectedVideos) * 1000;
       let spentInRun = 0;
 
       while (Date.now() - genStartTime < maxGenWait) {
         // Flow Agent asks "Bạn có muốn tôi bắt đầu tạo N video này với chi phí là X tín dụng không?" (Phê duyệt / Luôn phê duyệt / Từ chối).
-        // Approve ONLY a plan of exactly 1 video whose price is within budget; otherwise reject (no credits spent) and fail.
+        // Approve ONLY a plan of exactly N videos whose price is within budget; otherwise reject (no credits spent) and fail.
         if ((process.env.FLOW_AUTO_APPROVE !== "false" || dryRun) && approvals < 3) {
           const req = await readApprovalRequest(page, approvalBaseline);
           if (req.found && dryRun) {
@@ -1066,16 +1000,16 @@ export class FlowAutomationService {
             const summary = `Kiểm tra thử ${planOk ? "OK" : "KHÔNG khớp"}: Flow Agent đề xuất ${req.videos ?? "?"} video / ${req.credits ?? "?"} tín dụng (cần ${expectedVideos} video). Đã từ chối, không tốn credit.`;
             await prisma.generation.update({ where: { id: generationId }, data: { status: "DRAFT", errorMessage: null } });
             await prisma.generationEvent.create({ data: { generationId, type: "DRYRUN", message: summary } }).catch(() => {});
-            if (seq) await prisma.sequence.update({ where: { id: seq.id }, data: { errorMessage: `ℹ️ ${summary}` } }).catch(() => {});
+            await prisma.sequence.update({ where: { id: seq.id }, data: { errorMessage: `ℹ️ ${summary}` } }).catch(() => {});
             return { success: true };
           }
           if (req.found) {
             const isRetry = approvals > 0;
             // 1st card = the plan (must be exactly N videos). Later cards = the Agent offering to RE-CREATE clips that Flow reported as failed
             // ("Không thành công"): accept only if it asks for no more videos than are still missing.
-            const doneNow = isBatch ? (await listVideoTileIds(page)).filter((id) => !baselineTiles.has(id)).length : 0;
-            const remaining = isBatch ? Math.max(0, expectedVideos - doneNow) : expectedVideos;
-            const cap = isBatch ? Math.max(isRetry ? 0 : generation.flowCreditEstimate || 0, 25 * (isRetry ? remaining : expectedVideos)) : Math.max(generation.flowCreditEstimate || 0, 30);
+            const doneNow = (await listVideoTileIds(page)).filter((id) => !baselineTiles.has(id)).length;
+            const remaining = Math.max(0, expectedVideos - doneNow);
+            const cap = Math.max(isRetry ? 0 : generation.flowCreditEstimate || 0, 25 * (isRetry ? remaining : expectedVideos));
             const available = visibleCredits ?? Infinity;
             const countOk = isRetry ? req.videos !== null && req.videos >= 1 && req.videos <= remaining : req.videos === expectedVideos;
             let okPlan = countOk && req.credits !== null && req.credits <= cap && req.credits <= available;
@@ -1136,72 +1070,35 @@ export class FlowAutomationService {
           }
         }
 
-        // New Flow UI: the finished clip is a new video tile in the grid (video is drawn on a canvas, no <video> element)
+        // Finished clips are new video tiles in the grid (video is drawn on a canvas, no <video> element)
         const freshTiles = (await listVideoTileIds(page)).filter((id) => !baselineTiles.has(id));
-        if (isBatch) {
-          if (freshTiles.length >= expectedVideos) {
+        if (freshTiles.length >= expectedVideos) {
+          batchTileIds = freshTiles;
+          videoElementFound = true;
+          break;
+        }
+        // Some clips failed ("Không thành công"): the Agent usually offers to re-create them (handled above as a retry approval).
+        // If it does not within the grace period, stop waiting and collect what exists instead of sitting until the timeout.
+        const failedNow = Math.max(0, (await countErrorTiles(page)) - baselineErrors);
+        if (approved && freshTiles.length > 0 && freshTiles.length + failedNow >= expectedVideos) {
+          if (!settledSince) {
+            settledSince = Date.now();
+            await prisma.generationEvent.create({
+              data: { generationId, type: "GENERATING", message: `Flow xong ${freshTiles.length}/${expectedVideos} clip, ${failedNow} clip báo "Không thành công"; chờ Agent đề nghị tạo lại.` },
+            }).catch(() => {});
+          } else if (Date.now() - settledSince > retryGraceMs) {
             batchTileIds = freshTiles;
             videoElementFound = true;
             break;
           }
-          // Some clips failed ("Không thành công"): the Agent usually offers to re-create them (handled above as a retry approval).
-          // If it does not within the grace period, stop waiting and collect what exists instead of sitting until the timeout.
-          const failedNow = Math.max(0, (await countErrorTiles(page)) - baselineErrors);
-          if (approved && freshTiles.length > 0 && freshTiles.length + failedNow >= expectedVideos) {
-            if (!settledSince) {
-              settledSince = Date.now();
-              await prisma.generationEvent.create({
-                data: { generationId, type: "GENERATING", message: `Flow xong ${freshTiles.length}/${expectedVideos} clip, ${failedNow} clip báo "Không thành công"; chờ Agent đề nghị tạo lại.` },
-              }).catch(() => {});
-            } else if (Date.now() - settledSince > retryGraceMs) {
-              batchTileIds = freshTiles;
-              videoElementFound = true;
-              break;
-            }
-          } else {
-            settledSince = 0;
-          }
-          // batch mode ends only on finished tiles: the single-clip signals below (video source / download button) are not reliable here
-          await page.waitForTimeout(4000);
-          continue;
-        } else if (freshTiles[0]) {
-          newTileId = freshTiles[0];
-          videoElementFound = true;
-          break;
-        }
-
-        // A NEW video (not present before submit) means the render finished
-        const current = await listVideoSources(page);
-        const fresh = current.find((src) => src.length > 5 && !baselineVideos.has(src));
-        if (fresh) {
-          videoSrc = fresh;
-          videoElementFound = true;
-          break;
-        }
-
-        // Download button only counts when the project had no video before submitting
-        if (baselineVideos.size === 0) {
-          const downloadButton = await page.$(FlowSelectors.generationStatus.downloadButtons.join(", "));
-          if (downloadButton && (await downloadButton.isVisible().catch(() => false))) {
-            videoElementFound = true;
-            break;
-          }
-        }
-
-        // Check for error alert (ignore empty toasts)
-        const errorAlert = await page.$(FlowSelectors.generationStatus.errorMessage.join(", "));
-        if (errorAlert) {
-          const errorText = ((await errorAlert.innerText().catch(() => "")) || "").trim();
-          if (errorText && !/hãy thử lại|try again/i.test(errorText) && /fail|error|lỗi|thất bại|violation|vi phạm|unable|không thể/i.test(errorText)) {
-            flowRejected = true;
-            throw new Error(`Google Flow sinh video thất bại: ${errorText.slice(0, 300)}`);
-          }
+        } else {
+          settledSince = 0;
         }
 
         await page.waitForTimeout(4000);
       }
 
-      if (!videoElementFound && isBatch && approved) {
+      if (!videoElementFound && approved) {
         // timed out with only part of the clips: still collect what Flow finished (credits were already spent on them)
         batchTileIds = (await listVideoTileIds(page)).filter((id) => !baselineTiles.has(id));
         videoElementFound = batchTileIds.length > 0;
@@ -1210,95 +1107,43 @@ export class FlowAutomationService {
         throw new Error("Hết thời gian chờ Google Flow sinh video hoặc Flow yêu cầu thao tác người dùng.");
       }
 
-      await reportProgress("DOWNLOADING", "Video đã sinh xong. Đang tải tệp MP4 về hệ thống...");
+      await reportProgress("DOWNLOADING", "Flow đã tạo xong các clip. Đang tải về hệ thống...");
 
       const downloadedMp4Path = path.join(tempDir, `veo_${Date.now()}.mp4`);
 
-      // Try downloading via browser download trigger or direct authenticated stream
+      // Which clip is which scene is read from Flow itself: each clip's editor shows its "Scene k" prompt (the Agent's chat
+      // labels proved unreliable). Every clip of the batch lives in this ONE project.
       let downloaded = false;
-      if (isBatch) {
-        // Which clip is which scene is read from Flow itself: each clip's editor shows its "Scene k" prompt (the Agent's chat
-        // labels proved unreliable). Every clip of the batch lives in this ONE project.
-        const projectUrl = page.url();
-        await prisma.generationEvent.create({
-          data: { generationId, type: "GENERATING", message: `Flow Agent đã tạo ${batchTileIds.length}/${expectedVideos} clip trong cùng project; đang tải về và xác định cảnh.` },
-        }).catch(() => {});
-        const { clips, missing } = await this.collectClipsFromProject(
-          page,
-          projectUrl,
-          batchScenes.map((b) => (b.sceneIndex ?? 0) + 1),
-          tempDir,
-          (m) => reportProgress("DOWNLOADING", m)
-        );
-        // save every clip we have (also when some are missing: a later RECOVER then only needs the missing ones)
-        for (const b of batchScenes) {
-          const clip = clips.get((b.sceneIndex ?? 0) + 1);
-          if (!clip) continue;
-          await prisma.generation.update({ where: { id: b.id }, data: { prompt: clip.prompt || b.prompt, flowProjectId: projectUrl } });
-          if (b.id === generationId) {
-            fs.renameSync(clip.file, downloadedMp4Path);
-            downloaded = true;
-            continue;
-          }
-          await this.saveClipAsset(b, clip.file);
-          await prisma.generation.update({ where: { id: b.id }, data: { status: "COMPLETED", completedAt: new Date(), errorMessage: null } });
-          await prisma.generationEvent.create({ data: { generationId: b.id, type: "COMPLETED", message: "Clip do Flow Agent tạo trong batch và đã được lưu." } }).catch(() => {});
-        }
-        if (missing.length > 0) {
-          if (downloaded) await this.saveClipAsset(generation, downloadedMp4Path).catch(() => {});
-          throw new Error(
-            `Thiếu clip cảnh ${missing.join(", ")} (Flow chỉ tạo xong ${clips.size}/${expectedVideos} clip; các clip khác đã được lưu). Mở project Flow ${projectUrl} để tạo lại cảnh thiếu, rồi bấm "Khôi phục clip từ Flow" (0 credit).`
-          );
-        }
-      }
-      if (!isBatch && newTileId) {
-        downloaded = await downloadTileVideo(page, newTileId, downloadedMp4Path);
-        await prisma.generationEvent.create({
-          data: { generationId, type: "DOWNLOADING", message: downloaded ? "Đã tải bản 720p gốc từ Flow." : "Tải từ ô video thất bại - thử cách dự phòng." },
-        }).catch(() => {});
-      }
-      const downloadButtonSelector = downloaded
-        ? null
-        : await this.findFirstSelector(page, FlowSelectors.generationStatus.downloadButtons, 4000);
-
-      if (!downloaded && downloadButtonSelector) {
-        try {
-          const [download] = await Promise.all([
-            page.waitForEvent("download", { timeout: 15000 }),
-            page.click(downloadButtonSelector),
-          ]);
-          await download.saveAs(downloadedMp4Path);
+      const projectUrl = page.url();
+      await prisma.generationEvent.create({
+        data: { generationId, type: "GENERATING", message: `Flow Agent đã tạo ${batchTileIds.length}/${expectedVideos} clip trong cùng project; đang tải về và xác định cảnh.` },
+      }).catch(() => {});
+      const { clips, missing } = await this.collectClipsFromProject(
+        page,
+        projectUrl,
+        batchScenes.map((b) => (b.sceneIndex ?? 0) + 1),
+        tempDir,
+        (m) => reportProgress("DOWNLOADING", m)
+      );
+      // save every clip we have (also when some are missing: a later RECOVER then only needs the missing ones)
+      for (const b of batchScenes) {
+        const clip = clips.get((b.sceneIndex ?? 0) + 1);
+        if (!clip) continue;
+        await prisma.generation.update({ where: { id: b.id }, data: { prompt: clip.prompt || b.prompt, flowProjectId: projectUrl } });
+        if (b.id === generationId) {
+          fs.renameSync(clip.file, downloadedMp4Path);
           downloaded = true;
-        } catch (e) {
-          console.warn("[FlowAutomation] Download event fallback:", e);
+          continue;
         }
+        await this.saveClipAsset(b, clip.file);
+        await prisma.generation.update({ where: { id: b.id }, data: { status: "COMPLETED", completedAt: new Date(), errorMessage: null } });
+        await prisma.generationEvent.create({ data: { generationId: b.id, type: "COMPLETED", message: "Clip do Flow Agent tạo trong batch và đã được lưu." } }).catch(() => {});
       }
-
-      // Fallback: fetch the <video> source directly. http(s) goes through the browser context (shares cookies,
-      // no huge CDP payload); blob: URLs are read inside the page and returned as one base64 string.
-      if (!downloaded && videoSrc) {
-        try {
-          if (/^https?:/i.test(videoSrc)) {
-            const resp = await context.request.get(videoSrc, { timeout: 120000 });
-            if (resp.ok()) {
-              fs.writeFileSync(downloadedMp4Path, await resp.body());
-              downloaded = true;
-            }
-          }
-          if (!downloaded) {
-            const b64 = await page.evaluate<string>(
-              `(async () => { const r = await fetch(${JSON.stringify(videoSrc)}); const b = await r.blob();
-                 return await new Promise((res, rej) => { const fr = new FileReader();
-                   fr.onload = () => res(String(fr.result).split(',')[1] || ''); fr.onerror = () => rej(fr.error); fr.readAsDataURL(b); }); })()`
-            );
-            if (b64 && b64.length > 0) {
-              fs.writeFileSync(downloadedMp4Path, Buffer.from(b64, "base64"));
-              downloaded = true;
-            }
-          }
-        } catch (e) {
-          console.warn("[FlowAutomation] Direct source download failed:", e);
-        }
+      if (missing.length > 0) {
+        if (downloaded) await this.saveClipAsset(generation, downloadedMp4Path).catch(() => {});
+        throw new Error(
+          `Thiếu clip cảnh ${missing.join(", ")} (Flow chỉ tạo xong ${clips.size}/${expectedVideos} clip; các clip khác đã được lưu). Mở project Flow ${projectUrl} để tạo lại cảnh thiếu, rồi bấm "Khôi phục clip từ Flow" (0 credit).`
+        );
       }
 
       if (downloaded && fs.existsSync(downloadedMp4Path) && fs.statSync(downloadedMp4Path).size < 50 * 1024) {

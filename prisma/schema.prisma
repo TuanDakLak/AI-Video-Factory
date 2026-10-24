@@ -190,13 +190,13 @@ model Sequence {
   googleAccountId    String?
   title              String
   brief              String         @db.Text
-  styleBible         String         @db.Text // shared look/character description prepended to every scene prompt
+  styleBible         String         @db.Text // shared look/character description sent with the Flow Agent brief
   model              String         @default("Veo 3.1 Fast")
   aspectRatio        String         @default("9:16")
   clipSeconds        Int            @default(8)
   totalDuration      Int            @default(32) // target seconds
   transition         String         @default("CUT") // "CUT" | "CROSSFADE"
-  continuity         String         @default("INDEPENDENT") // "INDEPENDENT" | "LAST_FRAME" (scene N starts from the last frame of scene N-1)
+  continuity         String         @default("FLOW_AGENT") // "FLOW_AGENT" (Flow's Agent makes every clip in one project). Older rows: "INDEPENDENT" | "LAST_FRAME" (manual import only)
   referenceImageKeys String         @default("[]") // JSON array (max 3) of storage keys: product/character photos attached to scenes as Flow "Ingredients"
   caption            String?        @db.Text // social caption suggested for the final video (used by the publish step)
   language           String         @default("vi") // spoken words / on-screen text language passed to Flow
@@ -281,7 +281,7 @@ model Channel {
   aspectRatio        String @default("9:16")
   model              String @default("Veo 3.1 Fast")
   clipSeconds        Int    @default(10)
-  continuity         String @default("FLOW_AGENT")
+  continuity         String @default("FLOW_AGENT") // unused: every video is made by the Flow Agent
   transition         String @default("CUT")
   hashtags           String @default("[]") // JSON string[]
   referenceImageKeys String @default("[]") // JSON string[] (max 3)

@@ -24,12 +24,7 @@ export default async function VideoDetailPage({
       where: { id, ...videoAssetsOf(user.id) },
       include: {
         project: true,
-        generation: {
-          include: {
-            content: true,
-            googleAccount: true,
-          },
-        },
+        generation: { include: { googleAccount: true } },
       },
     });
   } catch (error) {

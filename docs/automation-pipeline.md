@@ -3,13 +3,14 @@
 Mục tiêu: hệ thống tự tìm chủ đề → tự viết kịch bản theo thể loại → tự render trên Flow → tự ghép → (sau này) tự đăng.
 Người dùng chỉ vào **Hộp chủ đề**, xoá chủ đề dở; chủ đề còn lại tự được sản xuất khi tới giờ.
 
-## 1. Luồng hiện tại (10/2026)
+## 1. Luồng hiện tại (10/2026, sau đợt dọn dẹp)
 
 ```
 Người dùng nhập brief ─► Sequence (FLOW_AGENT, N = tổng / 10s) ─► worker mở Flow ─► gửi 1 brief cho Flow Agent
    ─► Agent đề xuất "N video / X tín dụng" ─► tool tự Phê duyệt (trong trần) ─► N clip trong 1 project
    ─► tải từng clip (đọc "Scene k" ở nhật ký clip) ─► ffmpeg nối ─► 1 video dài, xoá clip 10s
-Automation: POST /api/automation/videos {topics[]} ─► mỗi topic 1 video, chạy ngay
+Automation: Kênh ─► tìm chủ đề ─► Hộp chủ đề (duyệt/xoá) ─► lịch sản xuất ─► kịch bản ─► video như trên ─► đăng bài
+API ngoài: POST /api/automation/topics {channelId, topics[]} ─► thêm vào Hộp chủ đề (không render ngay)
 ```
 
 ## 2. Vấn đề (đánh số để xử lý lần lượt)
@@ -107,7 +108,7 @@ Gemini quá tải (503/429): thử lại sau 2s, 6s rồi chuyển `gemini-2.5-f
 | 1 lượt tìm chủ đề (5 chủ đề) | ~8.000–9.000 / ~1.000–1.300 | ~$0.006 |
 
 5 video 90s/ngày ≈ 5 kịch bản + 1–2 lượt tìm chủ đề ≈ 7 lệnh gọi ≈ **$0.04–0.05/ngày (~1.000–1.300đ), ~$1.5/tháng** nếu trả phí;
-**$0 trên free tier** (7 lệnh/ngày, xa dưới hạn mức hằng ngày). Rủi ro tiền thật duy nhất là Veo API dự phòng (`VIDEO_FALLBACK_TO_API`, ~$0.10/giây video) — đang tắt.
+**$0 trên free tier** (7 lệnh/ngày, xa dưới hạn mức hằng ngày). (Veo API dự phòng tính theo USD đã bị gỡ: mọi video đều render bằng credit Flow.)
 
 ## 8. P3: tự phục hồi
 
@@ -149,3 +150,15 @@ Trang video: nút "Đăng" thủ công lên tài khoản bất kỳ đã kết n
 - 1 video × 1 tài khoản = tối đa 1 bài (ràng buộc unique): không bao giờ đăng trùng.
 - Lỗi tạm thời (5xx, 429, mạng) thử lại tối đa 3 lần; token bị thu hồi → tài khoản "cần kết nối lại".
 - Kiểm tra luật nền tảng trước khi tải lên (độ dài, tỉ lệ, độ phân giải, giới hạn của từng tài khoản TikTok).
+
+## 11. Dọn dẹp (10/2026)
+
+Gỡ những gì không còn hợp với ý tưởng "kênh → chủ đề → video dài → đăng":
+
+- Trang **Dự án**, **Ý tưởng & Kịch bản**, **Lệnh tạo video** (danh sách / tạo mới) và API tương ứng. Dự án giờ chỉ là thư mục lưu file nội bộ của mỗi kênh (hoặc "Video tự tạo").
+- Chế độ từng cảnh riêng (`INDEPENDENT`) và nối frame cuối (`LAST_FRAME`), bộ chia cảnh bằng AI cũ, sửa prompt từng cảnh. Video cũ ở các chế độ này vẫn xem được và vẫn Import thủ công được.
+- Veo API dự phòng (tính USD).
+- Provider AI cũ (`GeminiProvider` / `MockAIProvider` / `/api/ai/*`). Chỉ còn `lib/ai/llm.ts`.
+- `/api/automation/videos` (tạo video ngay, bỏ qua duyệt). Thay bằng `/api/automation/topics`: chủ đề đi qua hộp duyệt và lịch như mọi chủ đề khác.
+- "Preset kênh" đổi thành **Kênh** (`lib/channels.ts`, `/channels`, `/api/channels`). Form tạo video thủ công chỉ còn một ô chọn kênh (không bắt buộc).
+- Script và seed cũ, các thư viện không dùng (`@google/generative-ai`, `clsx`, `tailwind-merge`). Kết nối Redis không còn mở ngay khi import.

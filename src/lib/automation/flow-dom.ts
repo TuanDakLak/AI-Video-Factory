@@ -110,16 +110,6 @@ const READ_PROMPT_SCRIPT = `(() => {
   return (el.value !== undefined ? el.value : el.innerText) || '';
 })()`;
 
-const LIST_VIDEOS_SCRIPT = `(() => {
-  const out = new Set();
-  document.querySelectorAll('video').forEach(v => {
-    const s = v.currentSrc || v.src;
-    if (s) out.add(s);
-    v.querySelectorAll('source[src]').forEach(x => out.add(x.src));
-  });
-  return Array.from(out);
-})()`;
-
 const DUMP_SCRIPT = `(() => {
   const vis = (el) => { const r = el.getBoundingClientRect(); return r.width > 0 && r.height > 0; };
   const info = (el) => { const r = el.getBoundingClientRect(); return {
@@ -265,10 +255,6 @@ export async function submitPrompt(page: Page, prompt: string): Promise<{ method
   );
 }
 
-export async function listVideoSources(page: Page): Promise<string[]> {
-  return page.evaluate<string[]>(LIST_VIDEOS_SCRIPT).catch(() => []);
-}
-
 // ---- Finished videos (real DOM, Oct 2026) ------------------------------------------------------------
 // Flow renders videos on a <canvas> (no <video> element). A finished clip is a <flow-video-tile> in the project grid whose
 // thumbnail <img alt="Hình thu nhỏ của video đã tạo"> points to flow-content.google/image/<mediaId>. Clicking it opens
@@ -284,32 +270,6 @@ const LIST_TILES_SCRIPT = `(() => {
   });
   return Array.from(ids);
 })()`;
-
-const AGENT_OPTIONS_SCRIPT = `(() => {
-  const idOf = ${TILE_ID_JS};
-  const seen = new Set(); const out = [];
-  document.querySelectorAll('flow-a2ui-video-option img').forEach((i) => {
-    const id = idOf(i.currentSrc || i.src || '');
-    if (!id || seen.has(id)) return;
-    seen.add(id);
-    out.push({ id, alt: (i.getAttribute('alt') || '').trim() });
-  });
-  return out;
-})()`;
-
-export interface AgentVideoOption { id: string; alt: string; scene: number | null }
-
-/**
- * Videos the Flow Agent announced in the chat, in chat order: alt = the scene prompt ("Scene 2: Vertical 9:16 ..."),
- * id = media id matching the grid tile. Must be read BEFORE navigating away (the chat is part of the project page).
- */
-export async function readAgentVideoOptions(page: Page): Promise<AgentVideoOption[]> {
-  const raw = (await page.evaluate<any[]>(AGENT_OPTIONS_SCRIPT).catch(() => [])) as any[];
-  return raw.map((o) => {
-    const m = /^\s*(?:scene|cảnh)\s*(\d+)/i.exec(o.alt || "");
-    return { id: o.id, alt: o.alt, scene: m ? parseInt(m[1], 10) : null };
-  });
-}
 
 /** Clips Flow reported as failed ("Không thành công / Rất tiếc, không tạo được video này"): <flow-error-tile> in the grid. */
 export async function countErrorTiles(page: Page): Promise<number> {
@@ -333,29 +293,6 @@ export async function listVideoTilePositions(page: Page): Promise<string[]> {
       return out;
     })()`)
     .catch(() => []);
-}
-
-/**
- * Open a finished video tile and download the ORIGINAL 720p file (free; 1080p/4K are upscales). Returns false if any step fails.
- */
-export async function downloadTileVideo(page: Page, mediaId: string, savePath: string, position?: number): Promise<boolean> {
-  try {
-    // A freshly generated tile has a flow-content.google/image/<uuid> thumbnail, but after the project page is reloaded the SAME tile
-    // shows a flow.google.com/asb/<token> thumbnail, so the id no longer matches: fall back to the tile's position in the grid.
-    let tile = page.locator(`flow-video-tile:has(img[src*="${mediaId}"]) .container`).first();
-    if (!(await tile.isVisible().catch(() => false))) {
-      if (position === undefined || position < 0) return false;
-      tile = page.locator("flow-video-tile:has(img) .container").nth(position);
-      await tile.scrollIntoViewIfNeeded({ timeout: 4000 }).catch(() => {});
-      if (!(await tile.isVisible().catch(() => false))) return false;
-    }
-    await tile.click({ timeout: 5000 });
-    await page.waitForURL(/\/edit\//, { timeout: 15000 }).catch(() => {});
-    return await downloadFromEditor(page, savePath);
-  } catch (e: any) {
-    console.warn("[flow-dom] downloadTileVideo failed:", e?.message || e);
-    return false;
-  }
 }
 
 /**
@@ -472,18 +409,6 @@ export async function openEditorHistory(page: Page): Promise<boolean> {
   await btn.click({ timeout: 4000 }).catch(() => {});
   await sleep(1500);
   return true;
-}
-
-/** Click the first visible control whose accessible name matches `pattern`. */
-export async function clickByName(page: Page, pattern: RegExp, roles: string[] = ["option", "menuitem", "menuitemradio", "tab", "radio", "button"]): Promise<boolean> {
-  for (const role of roles) {
-    const loc = page.getByRole(role as any, { name: pattern }).first();
-    if (await loc.isVisible().catch(() => false)) {
-      await loc.click({ timeout: 3000 }).catch(() => {});
-      return true;
-    }
-  }
-  return false;
 }
 
 // ---- Flow Agent settings / approval (real DOM observed Oct 2026) ------------------------------------

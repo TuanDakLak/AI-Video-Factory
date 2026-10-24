@@ -5,9 +5,6 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import {
   LayoutDashboard,
-  FolderKanban,
-  FileText,
-  Sparkles,
   Film,
   Video,
   Settings,
@@ -42,42 +39,24 @@ export function Sidebar({ user }: { user: { name: string; email: string; role: "
     },
     {
       name: "Kênh",
-      href: "/presets",
+      href: "/channels",
       icon: Radio,
-      active: pathname.startsWith("/presets"),
+      active: pathname.startsWith("/channels"),
     },
     {
-      name: "Dự án",
-      href: "/projects",
-      icon: FolderKanban,
-      active: pathname.startsWith("/projects"),
-    },
-    {
-      name: "Ý tưởng & Kịch bản",
-      href: "/contents",
-      icon: FileText,
-      active: pathname.startsWith("/contents"),
-    },
-    {
-      name: "Lệnh tạo video",
-      href: "/generations",
-      icon: Sparkles,
-      active: pathname.startsWith("/generations"),
-    },
-    {
-      name: "Video nhiều cảnh",
+      name: "Tạo video",
       href: "/sequences",
       icon: Layers,
       active: pathname.startsWith("/sequences"),
     },
     {
-      name: "Thư viện Video",
+      name: "Thư viện",
       href: "/videos",
       icon: Film,
       active: pathname.startsWith("/videos"),
     },
     {
-      name: "Cài đặt & Tài khoản",
+      name: "Cài đặt",
       href: "/settings",
       icon: Settings,
       active: pathname.startsWith("/settings"),
@@ -92,7 +71,7 @@ export function Sidebar({ user }: { user: { name: string; email: string; role: "
           <Video className="w-4 h-4" />
         </div>
         <div>
-          <h1 className="font-semibold text-slate-800 text-sm tracking-tight">AI Content Factory</h1>
+          <h1 className="font-semibold text-slate-800 text-sm tracking-tight">AI Video Factory</h1>
         </div>
       </div>
 

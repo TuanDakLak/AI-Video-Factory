@@ -159,25 +159,3 @@ export async function assembleClips(opts: AssembleOptions): Promise<AssembleResu
   const out = await probeClip(outputPath);
   return { outputPath, duration: out.duration || totalDuration, width: out.width, height: out.height };
 }
-
-/**
- * Extract (approximately) the last frame of a clip as a PNG.
- * Used for "LAST_FRAME" continuity: it becomes the starting frame of the next scene in Flow.
- */
-export async function extractLastFrame(clipPath: string, outPng: string): Promise<string> {
-  fs.mkdirSync(path.dirname(outPng), { recursive: true });
-  const info = await probeClip(clipPath);
-  // try a few offsets from the end: some encoders have no decodable frame in the very last ms
-  const offsets = [0.12, 0.3, 0.6];
-  let lastErr: unknown = null;
-  for (const off of offsets) {
-    try {
-      const ss = Math.max(0, info.duration - off).toFixed(3);
-      await run(FFMPEG(), ["-y", "-hide_banner", "-loglevel", "error", "-ss", ss, "-i", clipPath, "-frames:v", "1", "-q:v", "2", outPng]);
-      if (fs.existsSync(outPng) && fs.statSync(outPng).size > 1024) return outPng;
-    } catch (e) {
-      lastErr = e;
-    }
-  }
-  throw new Error(`Không trích được frame cuối của clip: ${(lastErr as any)?.message || "file ảnh rỗng"}`);
-}

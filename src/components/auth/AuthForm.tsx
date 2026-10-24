@@ -139,7 +139,7 @@ export function AuthForm({ mode, googleEnabled }: { mode: "login" | "register"; 
           <div className="w-10 h-10 rounded-xl bg-emerald-600 text-white flex items-center justify-center shadow-sm">
             <Video className="w-5 h-5" />
           </div>
-          <span className="font-bold text-slate-900">AI Content Factory</span>
+          <span className="font-bold text-slate-900">AI Video Factory</span>
         </div>
 
         <form onSubmit={submit} noValidate className="bg-white border border-slate-200 rounded-3xl p-7 shadow-sm space-y-5">
