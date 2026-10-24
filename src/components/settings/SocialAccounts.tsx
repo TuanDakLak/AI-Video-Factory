@@ -56,11 +56,12 @@ function SetupGuide({ setup }: { setup: Setup }) {
         <details className="rounded-2xl border border-slate-200 px-4 py-3" open={!setup.tiktok.enabled}>
           <summary className="font-semibold text-slate-800 cursor-pointer">Cài Facebook Page (làm được ngay trên localhost)</summary>
           <ol className="list-decimal pl-5 mt-2 space-y-1.5 leading-relaxed">
-            <li>Vào <a className="text-blue-700 underline" href="https://developers.facebook.com/apps" target="_blank" rel="noopener noreferrer">developers.facebook.com/apps</a> → Create app → loại <b>Business</b> (hoặc use case &quot;Manage everything on your Page&quot;).</li>
-            <li>Thêm sản phẩm <b>Facebook Login</b> → Settings → <i>Valid OAuth Redirect URIs</i>: <CopyLine value={setup.facebook.redirectUri} /></li>
-            <li>App settings → Basic: lấy <b>App ID</b> và <b>App Secret</b>.</li>
-            <li>Ở chế độ Development, chỉ tài khoản là admin/developer/tester của app mới kết nối được, và chỉ với Page bạn quản lý. Đủ để dùng cho Page của chính bạn, không cần App Review.</li>
-            <li>Thêm vào <code>.env</code> rồi khởi động lại web và worker: <CopyLine value="FACEBOOK_APP_ID=" /> <CopyLine value="FACEBOOK_APP_SECRET=" /></li>
+            <li>Vào <a className="text-blue-700 underline" href="https://developers.facebook.com/apps" target="_blank" rel="noopener noreferrer">developers.facebook.com/apps</a> → Tạo ứng dụng. Trường hợp sử dụng: <b>Quản lý mọi thứ trên Trang của bạn</b> (Manage everything on your Page). Doanh nghiệp: có thể chọn chưa kết nối.</li>
+            <li>Trong app: Trường hợp sử dụng → Tuỳ chỉnh → thêm quyền <code>pages_show_list</code>, <code>pages_read_engagement</code>, <code>pages_manage_posts</code>.</li>
+            <li>Sản phẩm đăng nhập (Facebook Login hoặc Facebook Login for Business) → Cài đặt → <i>URI chuyển hướng OAuth hợp lệ</i>: <CopyLine value={setup.facebook.redirectUri} /></li>
+            <li>Nếu là <b>Facebook Login for Business</b>: Cấu hình → Tạo cấu hình → loại <i>Mã truy cập người dùng</i>, chọn 3 quyền trên → lấy <b>ID cấu hình</b>: <CopyLine value="FACEBOOK_CONFIG_ID=" /></li>
+            <li>Cài đặt ứng dụng → Thông tin cơ bản: lấy <b>ID ứng dụng</b> và <b>Khoá bí mật</b>, thêm vào <code>.env</code> rồi khởi động lại web và worker: <CopyLine value="FACEBOOK_APP_ID=" /> <CopyLine value="FACEBOOK_APP_SECRET=" /></li>
+            <li>Ở chế độ Development, chỉ admin/developer/tester của app kết nối được, và chỉ với Page họ quản lý: đủ cho Page của chính bạn, không cần Meta duyệt.</li>
           </ol>
         </details>
       )}

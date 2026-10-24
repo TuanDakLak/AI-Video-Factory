@@ -4,6 +4,7 @@ import { decryptSecret, encryptSecret } from "../lib/publish/crypto";
 import { chunkPlan } from "../lib/publish/tiktok";
 import { buildCaption, platformProblem, pollPublication, queueAutoPublications, startPublication } from "../lib/publish/publisher";
 import { socialSetup, wrongOrigin } from "../lib/publish/oauth";
+import { facebookAuthorizeUrl } from "../lib/publish/facebook";
 
 /** Publishing pipeline against mocked TikTok / Facebook APIs (no network, no real accounts). Needs Postgres. */
 function assert(cond: unknown, msg: string) {
@@ -162,6 +163,13 @@ async function run() {
   const moved = wrongOrigin(req("localhost:3000"));
   assert(moved?.status === 303 && moved.headers.get("location") === "https://demo.ngrok-free.app/settings?social=origin", "connecting from another address is sent to APP_URL first (cookies live there)");
   assert(wrongOrigin(req("demo.ngrok-free.app")) === null, "connecting from APP_URL proceeds");
+  process.env.FACEBOOK_APP_ID = "app";
+  const classic = new URL(facebookAuthorizeUrl("s"));
+  process.env.FACEBOOK_CONFIG_ID = "cfg123";
+  const business = new URL(facebookAuthorizeUrl("s"));
+  delete process.env.FACEBOOK_CONFIG_ID;
+  assert(classic.searchParams.get("scope")?.includes("pages_manage_posts") && !classic.searchParams.has("config_id"), "Facebook Login: permissions sent as scope");
+  assert(business.searchParams.get("config_id") === "cfg123" && !business.searchParams.has("scope"), "Facebook Login for Business: login configuration id instead of scope");
   if (savedUrl === undefined) delete process.env.APP_URL;
   else process.env.APP_URL = savedUrl;
 

@@ -19,8 +19,19 @@ export function facebookRedirectUri(): string {
   return `${(process.env.APP_URL || "http://localhost:3000").replace(/\/+$/, "")}/api/social/facebook/callback`;
 }
 
+/**
+ * Classic Facebook Login takes the permissions as `scope`. Apps that got "Facebook Login for Business" (the default for
+ * Business apps) ignore `scope` and need the id of a login configuration (User access token + the same permissions).
+ */
 export function facebookAuthorizeUrl(state: string): string {
-  const p = new URLSearchParams({ client_id: process.env.FACEBOOK_APP_ID!, redirect_uri: facebookRedirectUri(), state, scope: FACEBOOK_SCOPES, response_type: "code" });
+  const configId = process.env.FACEBOOK_CONFIG_ID?.trim();
+  const p = new URLSearchParams({
+    client_id: process.env.FACEBOOK_APP_ID!,
+    redirect_uri: facebookRedirectUri(),
+    state,
+    response_type: "code",
+    ...(configId ? { config_id: configId } : { scope: FACEBOOK_SCOPES }),
+  });
   return `https://www.facebook.com/${version()}/dialog/oauth?${p}`;
 }
 
