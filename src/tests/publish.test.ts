@@ -163,11 +163,14 @@ async function run() {
   const moved = wrongOrigin(req("localhost:3000"));
   assert(moved?.status === 303 && moved.headers.get("location") === "https://demo.ngrok-free.app/settings?social=origin", "connecting from another address is sent to APP_URL first (cookies live there)");
   assert(wrongOrigin(req("demo.ngrok-free.app")) === null, "connecting from APP_URL proceeds");
+  // empty string, not delete: Prisma loads the real .env on connect but never overrides a variable that is already set
+  const savedFb = [process.env.FACEBOOK_APP_ID, process.env.FACEBOOK_CONFIG_ID];
   process.env.FACEBOOK_APP_ID = "app";
+  process.env.FACEBOOK_CONFIG_ID = "";
   const classic = new URL(facebookAuthorizeUrl("s"));
   process.env.FACEBOOK_CONFIG_ID = "cfg123";
   const business = new URL(facebookAuthorizeUrl("s"));
-  delete process.env.FACEBOOK_CONFIG_ID;
+  [process.env.FACEBOOK_APP_ID, process.env.FACEBOOK_CONFIG_ID] = [savedFb[0] ?? "", savedFb[1] ?? ""];
   assert(classic.searchParams.get("scope")?.includes("pages_manage_posts") && !classic.searchParams.has("config_id"), "Facebook Login: permissions sent as scope");
   assert(business.searchParams.get("config_id") === "cfg123" && !business.searchParams.has("scope"), "Facebook Login for Business: login configuration id instead of scope");
   if (savedUrl === undefined) delete process.env.APP_URL;
