@@ -3,6 +3,7 @@ import { storage } from "../lib/storage";
 import { decryptSecret, encryptSecret } from "../lib/publish/crypto";
 import { chunkPlan } from "../lib/publish/tiktok";
 import { buildCaption, platformProblem, pollPublication, queueAutoPublications, startPublication } from "../lib/publish/publisher";
+import { socialSetup, wrongOrigin } from "../lib/publish/oauth";
 
 /** Publishing pipeline against mocked TikTok / Facebook APIs (no network, no real accounts). Needs Postgres. */
 function assert(cond: unknown, msg: string) {
@@ -151,6 +152,19 @@ async function run() {
     for (const k of files) await storage.deleteFile(k);
     await prisma.user.deleteMany({ where: { id: { in: users } } });
   }
+
+  console.log("\n--- 7. Connect setup (APP_URL) ---");
+  const savedUrl = process.env.APP_URL;
+  process.env.APP_URL = "https://demo.ngrok-free.app/";
+  const st = socialSetup();
+  assert(st.https && st.tiktok.redirectUri === "https://demo.ngrok-free.app/api/social/tiktok/callback" && st.facebook.redirectUri.endsWith("/api/social/facebook/callback"), "redirect URIs shown for setup are built from APP_URL");
+  const req = (host: string) => new Request(`http://${host}/api/social/tiktok/start`, { headers: { host } });
+  const moved = wrongOrigin(req("localhost:3000"));
+  assert(moved?.status === 303 && moved.headers.get("location") === "https://demo.ngrok-free.app/settings?social=origin", "connecting from another address is sent to APP_URL first (cookies live there)");
+  assert(wrongOrigin(req("demo.ngrok-free.app")) === null, "connecting from APP_URL proceeds");
+  if (savedUrl === undefined) delete process.env.APP_URL;
+  else process.env.APP_URL = savedUrl;
+
   console.log("\n🎉 ALL PUBLISH TESTS PASSED");
 }
 

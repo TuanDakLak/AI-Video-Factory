@@ -1,12 +1,11 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/db";
 import { requireApiUser } from "@/lib/auth/session";
-import { facebookEnabled } from "@/lib/publish/facebook";
-import { tiktokEnabled } from "@/lib/publish/tiktok";
+import { socialSetup } from "@/lib/publish/oauth";
 
 export const dynamic = "force-dynamic";
 
-/** The caller's connected social accounts (tokens are never returned) + which platforms are configured. */
+/** The caller's connected social accounts (tokens are never returned) + which platforms are configured and how to set them up. */
 export async function GET() {
   const user = await requireApiUser();
   if (user instanceof NextResponse) return user;
@@ -15,5 +14,6 @@ export async function GET() {
     orderBy: { createdAt: "asc" },
     select: { id: true, platform: true, displayName: true, status: true, lastError: true, tokenExpiresAt: true, createdAt: true },
   });
-  return NextResponse.json({ accounts, enabled: { tiktok: tiktokEnabled(), facebook: facebookEnabled() } });
+  const setup = socialSetup();
+  return NextResponse.json({ accounts, enabled: { tiktok: setup.tiktok.enabled, facebook: setup.facebook.enabled }, setup });
 }

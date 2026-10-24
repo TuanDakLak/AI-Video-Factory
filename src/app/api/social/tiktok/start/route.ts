@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { requireApiUser } from "@/lib/auth/session";
-import { platformEnabled, startConnect } from "@/lib/publish/oauth";
+import { platformEnabled, startConnect, wrongOrigin } from "@/lib/publish/oauth";
 
 export const dynamic = "force-dynamic";
 
@@ -9,5 +9,7 @@ export async function GET(req: Request) {
   const user = await requireApiUser();
   if (user instanceof NextResponse) return user;
   if (!platformEnabled("tiktok")) return NextResponse.redirect(new URL("/settings?social=disabled", req.url), 303);
+  const moved = wrongOrigin(req);
+  if (moved) return moved;
   return startConnect("tiktok", user.id);
 }

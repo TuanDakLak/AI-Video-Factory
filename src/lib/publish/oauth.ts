@@ -4,8 +4,9 @@ import { SignJWT, jwtVerify } from "jose";
 import { authSecret, cookiesSecure } from "@/lib/auth/config";
 import { prisma } from "@/lib/db";
 import { encryptSecret } from "./crypto";
-import { exchangeTikTokCode, tiktokAuthorizeUrl, tiktokEnabled, tiktokUserInfo, TIKTOK_SCOPES } from "./tiktok";
-import { exchangeFacebookCode, facebookAuthorizeUrl, facebookEnabled, facebookPages, FACEBOOK_SCOPES } from "./facebook";
+import { appUrl } from "@/lib/auth/google";
+import { exchangeTikTokCode, tiktokAuthorizeUrl, tiktokEnabled, tiktokRedirectUri, tiktokUserInfo, TIKTOK_SCOPES } from "./tiktok";
+import { exchangeFacebookCode, facebookAuthorizeUrl, facebookEnabled, facebookPages, facebookRedirectUri, FACEBOOK_SCOPES } from "./facebook";
 
 /**
  * "Connect TikTok / Facebook" for the signed-in user. The OAuth `state` is random, bound to the user and the platform,
@@ -17,6 +18,28 @@ const PATH = "/api/social";
 
 export function platformEnabled(p: SocialPlatform): boolean {
   return p === "tiktok" ? tiktokEnabled() : facebookEnabled();
+}
+
+/** What the Settings page needs to guide the setup: which platforms are configured and the exact redirect URIs to register. */
+export function socialSetup() {
+  const base = appUrl();
+  return {
+    appUrl: base,
+    https: base.startsWith("https://"),
+    tiktok: { enabled: tiktokEnabled(), redirectUri: tiktokRedirectUri() },
+    facebook: { enabled: facebookEnabled(), redirectUri: facebookRedirectUri() },
+  };
+}
+
+/**
+ * The platform sends the user back to APP_URL. When the app is opened under another address (localhost vs a tunnel), the
+ * callback would arrive without this browser's session and state cookies and fail: send the user to APP_URL first.
+ */
+export function wrongOrigin(req: Request): NextResponse | null {
+  const host = req.headers.get("x-forwarded-host") || req.headers.get("host");
+  const expected = new URL(appUrl());
+  if (!host || host === expected.host) return null;
+  return NextResponse.redirect(`${expected.origin}/settings?social=origin`, 303);
 }
 
 export async function startConnect(platform: SocialPlatform, userId: string): Promise<NextResponse> {
