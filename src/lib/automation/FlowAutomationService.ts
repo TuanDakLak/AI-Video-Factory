@@ -983,10 +983,11 @@ export class FlowAutomationService {
       let lastPageSig = "";
       let lastChangeAt = Date.now();
       let nudges = 0;
-      const maxNudges = parseInt(process.env.FLOW_AGENT_MAX_NUDGES || "", 10) >= 0 ? parseInt(process.env.FLOW_AGENT_MAX_NUDGES!, 10) : 2;
+      const maxNudges = parseInt(process.env.FLOW_AGENT_MAX_NUDGES || "", 10) >= 0 ? parseInt(process.env.FLOW_AGENT_MAX_NUDGES!, 10) : 3;
       const idleMs = (parseInt(process.env.FLOW_AGENT_IDLE_SEC || "", 10) || 50) * 1000;
       // Veo Quality can take several minutes: default 8 min, override with FLOW_GENERATION_TIMEOUT_SEC
-      const maxGenWait = dryRun ? 240000 : ((parseInt(process.env.FLOW_GENERATION_TIMEOUT_SEC || "", 10) || 480) + 180 * expectedVideos) * 1000;
+      // the Agent may first draw reference images / storyboard frames (~2-3 min) before it asks for approval
+      const maxGenWait = dryRun ? (parseInt(process.env.FLOW_DRYRUN_TIMEOUT_SEC || "", 10) || 480) * 1000 : ((parseInt(process.env.FLOW_GENERATION_TIMEOUT_SEC || "", 10) || 480) + 180 * expectedVideos) * 1000;
       let spentInRun = 0;
 
       while (Date.now() - genStartTime < maxGenWait) {
@@ -1054,7 +1055,7 @@ export class FlowAutomationService {
             nudges++;
             const nudge = buildAgentNudge(expectedVideos);
             await prisma.generationEvent.create({
-              data: { generationId, type: "GENERATING", message: `Flow Agent dừng lại mà chưa đề xuất kế hoạch (có thể đang hỏi lại ý tưởng): tự động trả lời "tự quyết định và tiến hành" (lần ${nudges}/${maxNudges}).` },
+              data: { generationId, type: "GENERATING", message: `Flow Agent dừng lại mà chưa đề xuất kế hoạch (đang hỏi lại hoặc chờ duyệt ảnh storyboard): tự động trả lời "tiến hành tạo ${expectedVideos} video" (lần ${nudges}/${maxNudges}).` },
             }).catch(() => {});
             try {
               const box = await findPromptBox(page, 8000);
@@ -1104,7 +1105,13 @@ export class FlowAutomationService {
         videoElementFound = batchTileIds.length > 0;
       }
       if (!videoElementFound) {
-        throw new Error("Hết thời gian chờ Google Flow sinh video hoặc Flow yêu cầu thao tác người dùng.");
+        throw new Error(
+          dryRun
+            ? `Chạy thử hết giờ: sau ${Math.round(maxGenWait / 60000)} phút Flow Agent vẫn chưa đưa thẻ duyệt "N video / X tín dụng" (chưa bấm duyệt gì, không tốn credit video). Có thể chạy thử lại hoặc mở project Flow để xem Agent đang hỏi gì.`
+            : approved
+              ? "Hết thời gian chờ Google Flow render các clip (đã duyệt kế hoạch)."
+              : "Hết thời gian chờ: Flow Agent chưa đưa ra kế hoạch để duyệt (chưa tốn credit video)."
+        );
       }
 
       await reportProgress("DOWNLOADING", "Flow đã tạo xong các clip. Đang tải về hệ thống...");

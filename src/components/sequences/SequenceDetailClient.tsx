@@ -194,7 +194,7 @@ export default function SequenceDetailClient({ initial }: { initial: SequenceDat
                 <span>{startLabel}</span>
               </button>
             )}
-            {!legacy && !active && doneCount === 0 && seq.status === "PLANNED" && (
+            {!legacy && !active && doneCount === 0 && (seq.status === "PLANNED" || (seq.status === "NEEDS_USER_ACTION" && !seq.scenes.some((s) => s.status === "NEEDS_USER_ACTION"))) && (
               <button type="button" onClick={handleDryRun} disabled={busy !== null}
                 title="Flow Agent lập kế hoạch, tool đọc số video + giá rồi từ chối. Không tốn credit."
                 className="inline-flex items-center gap-2 border border-emerald-300 text-emerald-800 hover:bg-emerald-50 text-xs font-semibold px-4 py-2.5 rounded-xl disabled:opacity-50">

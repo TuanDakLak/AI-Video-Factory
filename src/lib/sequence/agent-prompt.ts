@@ -22,11 +22,11 @@ export const AGENT_CREDITS_PER_CLIP = 15;
 
 /** Appended to every Agent prompt: the Agent otherwise tends to answer a short idea with a question ("which clash?") and make nothing. */
 export const AGENT_NO_QUESTIONS_RULE =
-  "AUTONOMOUS MODE: do NOT ask me any clarifying questions and do not offer choices. Decide every creative detail yourself (characters, setting, story, camera, music) — if the brief is short or vague, invent a concrete, vivid story. Go straight to the plan and the approval request.";
+  "AUTONOMOUS MODE: do NOT ask me any clarifying questions and do not offer choices. Decide every creative detail yourself (characters, setting, story, camera, music) — if the brief is short or vague, invent a concrete, vivid story. Go straight to the plan and the approval request. If you create reference images or storyboard frames first, do NOT stop to ask for my feedback on them: they are approved, continue in the same turn and immediately request approval to generate the videos.";
 
 /** Follow-up sent when the Agent went idle without a plan / approval card (usually because it asked a question instead). */
 export function buildAgentNudge(count: number): string {
-  return `Không cần hỏi thêm. Hãy tự chọn mọi chi tiết sáng tạo (nhân vật, bối cảnh, cốt truyện, phong cách) và tiến hành ngay: tạo ảnh tham chiếu nếu cần rồi đề xuất tạo đúng ${count} video để tôi phê duyệt. (Proceed now without asking any question; choose everything yourself.)`;
+  return `Không cần hỏi thêm, ảnh tham chiếu / khung cảnh (nếu có) đều đã ổn. Hãy tự chọn mọi chi tiết còn lại và tiến hành ngay: đề xuất tạo đúng ${count} video để tôi phê duyệt. (Proceed now without asking any question: the images are approved, request approval to generate exactly ${count} videos.)`;
 }
 
 export function buildAgentBatchPrompt(i: AgentBatchPromptInput): string {
