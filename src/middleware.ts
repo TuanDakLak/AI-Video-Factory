@@ -8,6 +8,8 @@ import { verifyAccessToken } from "@/lib/auth/jwt";
  */
 
 const PUBLIC_PAGES = new Set(["/login", "/register"]);
+// legal pages: readable by anyone, signed in or not (Meta / TikTok app review link to them)
+const OPEN_PAGES = new Set(["/privacy", "/terms"]);
 // these endpoints authenticate on their own (login/refresh/logout must work without a valid access token;
 // automation uses an API key for unattended callers)
 const PUBLIC_API = ["/api/auth/login", "/api/auth/register", "/api/auth/refresh", "/api/auth/logout", "/api/auth/google/", "/api/automation/"];
@@ -44,6 +46,8 @@ export async function middleware(req: NextRequest) {
   if (isApi && PUBLIC_API.some((p) => pathname === p || (p.endsWith("/") && pathname.startsWith(p)))) {
     return securityHeaders(NextResponse.next());
   }
+
+  if (OPEN_PAGES.has(pathname)) return securityHeaders(NextResponse.next());
 
   const claims = await verifyAccessToken(req.cookies.get(accessCookieName())?.value);
 

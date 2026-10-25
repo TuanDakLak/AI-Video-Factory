@@ -2,7 +2,7 @@
 
 import React, { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
-import { ExternalLink, Loader2, Send } from "lucide-react";
+import { ExternalLink, Loader2, RotateCcw, Send } from "lucide-react";
 import { useToast } from "@/components/ui/ToastContext";
 
 interface Social {
@@ -13,6 +13,7 @@ interface Social {
 }
 interface Pub {
   id: string;
+  socialAccountId: string;
   platform: string;
   status: string;
   remoteUrl: string | null;
@@ -72,6 +73,28 @@ export function PublishPanel({ videoId }: { videoId: string }) {
     }
   };
 
+  const repost = async (p: Pub) => {
+    const name = `${LABEL[p.platform] ?? p.platform}: ${p.socialAccount.displayName}`;
+    const note = p.status === "PUBLISHED" ? "\nBài cũ vẫn còn trên nền tảng, hãy xoá nó ở đó nếu không muốn trùng." : "";
+    if (!window.confirm(`Đăng lại video này lên ${name}?${note}`)) return;
+    setBusy(true);
+    try {
+      const res = await fetch(`/api/videos/${videoId}/publish`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ socialAccountIds: [p.socialAccountId], tiktokPrivacy: p.privacy ?? privacy, repost: true }),
+      });
+      const d = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(d.error || "Không đăng lại được.");
+      success(`Đã xếp hàng đăng lại lên ${name}.`);
+      await load();
+    } catch (e: any) {
+      error(e.message);
+    } finally {
+      setBusy(false);
+    }
+  };
+
   const done = new Set(pubs.map((p) => p.socialAccount.displayName + p.platform));
   const choices = socials.filter((s) => !done.has(s.displayName + s.platform));
 
@@ -87,6 +110,11 @@ export function PublishPanel({ videoId }: { videoId: string }) {
               <span className="flex items-center gap-2 shrink-0">
                 <span className={`px-2 py-0.5 rounded-full text-[11px] font-semibold ${STATUS[p.status]?.[1] ?? ""}`} title={p.errorMessage || ""}>{STATUS[p.status]?.[0] ?? p.status}</span>
                 {p.remoteUrl && <a href={p.remoteUrl} target="_blank" rel="noopener noreferrer" className="text-sky-700"><ExternalLink className="w-3.5 h-3.5" /></a>}
+                {(p.status === "PUBLISHED" || p.status === "FAILED") && (
+                  <button type="button" onClick={() => repost(p)} disabled={busy} className="inline-flex items-center gap-1 text-[11px] font-semibold text-violet-700 hover:underline disabled:opacity-50" title="Đăng lại lên tài khoản này">
+                    <RotateCcw className="w-3 h-3" />Đăng lại
+                  </button>
+                )}
               </span>
             </li>
           ))}
